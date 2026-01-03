@@ -17,6 +17,9 @@ export const initializePassport = (passport) => {
             return done(null, false, { message: 'Incorrect email.' });
           }
 
+          if (!user.password) {
+            return done(null, false, { message: 'Incorrect password.' });
+          }
           // Check Password
           const isMatch = await bcrypt.compare(password, user.password);
           if (!isMatch) {

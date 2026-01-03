@@ -16,7 +16,7 @@ const startServer = async () => {
   try {
     await db.sequelize.authenticate();
     console.log('Database connected.');
-    await db.sequelize.sync({ alter: true });
+    // await db.sequelize.sync({ force: true });
     // Important: Listen on httpServer, NOT app
     httpServer.listen(PORT, () => {
       console.log(`Server running on http://localhost:${PORT}`);

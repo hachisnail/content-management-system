@@ -1,59 +1,81 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from '/vite.svg'
-import './App.css'
+// client/src/App.jsx
+import React, { useState, useEffect } from 'react';
+import { BrowserRouter } from 'react-router-dom';
+import { AppRoutes } from './routes.jsx';
+import './index.css'; 
+import socket from './socket';
+import api from './api'; 
 
 function App() {
-  const [count, setCount] = useState(0)
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const storedUser = localStorage.getItem('user');
+    if (storedUser) {
+      setUser(JSON.parse(storedUser));
+      if (!socket.connected) socket.connect();
+    }
+    setLoading(false);
+
+    // --- CLEANUP HELPER ---
+    const cleanupClient = () => {
+      setUser(null);
+      localStorage.removeItem('user');
+      if (socket.connected) socket.disconnect();
+    };
+
+    const handleAuthInvalidated = (data) => {
+      console.log('Authentication invalidated:', data);
+      cleanupClient();
+      // Redirect with specific query param
+      window.location.href = '/login-test?reason=invalidated';
+    };
+
+    const handleForceLogout = (data) => {
+      console.log('Forced logout:', data);
+      cleanupClient();
+      // Redirect with specific query param
+      window.location.href = '/login-test?reason=force_logout';
+    };
+
+    socket.on('auth_invalidated', handleAuthInvalidated);
+    socket.on('force_logout', handleForceLogout);
+
+    return () => {
+      socket.off('auth_invalidated', handleAuthInvalidated);
+      socket.off('force_logout', handleForceLogout);
+    };
+  }, []); 
+
+  const handleLogin = (user) => {
+    setUser(user);
+    localStorage.setItem('user', JSON.stringify(user));
+    if (!socket.connected) socket.connect();
+  };
+
+  const logout = async () => {
+    try {
+      await api.logout(); 
+    } catch (error) {
+      console.error("Logout error", error);
+    } finally {
+      setUser(null);
+      localStorage.removeItem('user');
+      if (socket.connected) socket.disconnect();
+      window.location.href = '/login-test';
+    }
+  };
+
+  if (loading) {
+    return <div className="text-center p-8 text-lg">Loading application...</div>;
+  }
 
   return (
-    <>
-      <div>
-        <a href="https://vite.dev" target="_blank">
-          <img src={viteLogo} className="logo" alt="Vite logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <h1>Vite + React</h1>
-      <div className="card">
-        <button onClick={() => setCount((count) => count + 1)}>
-          count is {count}
-        </button>
-        <p>
-          Edit <code>src/App.jsx</code> and save to test HMR
-        </p>
-      </div>
-      <p className="read-the-docs">
-        Click on the Vite and React logos to learn more
-      </p>
-    </>
-  )
+    <BrowserRouter>
+      <AppRoutes user={user} handleLogin={handleLogin} logout={logout} />
+    </BrowserRouter>
+  );
 }
 
-export default App
-
-
-
-// import { useQuery } from '@tanstack/react-query'; // Assuming you use React Query
-// import { useRealtimeResource } from '../hooks/useRealtimeResource';
-
-// const ArticleEditor = ({ articleId }) => {
-//   // 1. Standard Data Fetching
-//   const { data, refetch } = useQuery(['article', articleId], fetchArticleApi);
-
-//   // 2. Hook into Realtime System
-//   // When 'resource_updated' fires, 'refetch' is called automatically
-//   useRealtimeResource(articleId, refetch);
-
-//   if (!data) return <div>Loading...</div>;
-
-//   return (
-//     <div>
-//       <h1>{data.title}</h1>
-//       <textarea defaultValue={data.content} />
-//       {/* Save button logic here */}
-//     </div>
-//   );
-// };
+export default App;

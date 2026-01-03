@@ -1,5 +1,5 @@
 import { db } from '../models/index.js';
-import { getIO } from '../socket.js'; // Import Socket for realtime alerts
+import { getIO } from '../socket-store.js'; // Import Socket for realtime alerts
 
 // PUBLIC: Guest submits a form
 export const submitDonation = async (req, res, next) => {
@@ -15,10 +15,6 @@ export const submitDonation = async (req, res, next) => {
 
     // REALTIME: Alert all logged-in staff immediately!
     const io = getIO();
-    io.emit('new_donation', { 
-      message: `New donation from ${donorName}`, 
-      data: donation 
-    });
 
     res.status(201).json({ success: true, message: 'Donation submitted for review!' });
   } catch (error) {

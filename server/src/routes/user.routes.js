@@ -7,6 +7,9 @@ const router = express.Router();
 // PROTECTED: Only Admins can create new users (The "Invite" system)
 router.post('/', isAuthenticated, isAdmin, UserController.createUser);
 
+// PUBLIC: User completes their registration
+router.post('/complete-registration', UserController.completeRegistration);
+
 // PROTECTED: Staff can view list of users
 router.get('/', isAuthenticated, UserController.getAllUsers);
 

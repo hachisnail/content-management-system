@@ -1,30 +1,34 @@
 import express from 'express';
 import passport from 'passport';
-import cors from 'cors';
+import cors from 'cors'; // Import the middleware
 
-// Import the SHARED middleware, not just the config object
+// Import Shared Config
+import { corsOptions } from './config/cors.js'; 
+
 import { sessionMiddleware } from './config/session.js'; 
 import { initializePassport } from './config/passport.js';
-import routes from './routes/index.js';
+import { routes } from './routes/index.js';
+import { updateUserActivity } from './middlewares/activity.middleware.js';
 
 const app = express();
 
 // --- Middleware ---
-// Ensure this origin matches your frontend exactly
-app.use(cors({ origin: 'http://localhost:5173', credentials: true }));
+// 1. Apply Centralized CORS Config
+app.use(cors(corsOptions)); 
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // --- Session & Auth ---
-// 1. Use the shared session middleware (Same instance used in server.js)
 app.use(sessionMiddleware); 
-
-// 2. Initialize Passport (Auth Strategy)
 initializePassport(passport);
 app.use(passport.initialize());
 app.use(passport.session());
 
+// 3. Update user activity timestamp
+app.use(updateUserActivity);
+
 // --- Routes ---
-app.use('/api', routes); // I removed the trailing slash for cleaner URLs
+app.use('/api', routes);
 
 export { app };

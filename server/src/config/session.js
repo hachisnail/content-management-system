@@ -29,7 +29,7 @@ const sessionStore = new StoreFactory({
 // This consolidates your previous two objects into one complete config
 export const sessionConfig = {
   key: 'user_sid',
-  secret: config.jwt.secret,
+  secret: config.session.secret,
   store: sessionStore,
   resave: false,
   saveUninitialized: false, // Helps with login logic (only save if modified/logged in)

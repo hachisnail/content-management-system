@@ -1,33 +1,85 @@
 import passport from 'passport';
+import { handleNewLogin } from '../services/session.service.js';
+import { logOperation } from '../services/logger.js';
+import { db } from '../models/index.js';
+
 
 export const login = (req, res, next) => {
-  // Use the 'local' strategy defined in config/passport.js
   passport.authenticate('local', (err, user, info) => {
     if (err) return next(err);
     if (!user) return res.status(401).json({ success: false, message: info.message });
 
-    // Manually establish the session
-    req.logIn(user, (err) => {
+    req.logIn(user, async (err) => {
       if (err) return next(err);
-      
-      // Session is saved in MariaDB automatically here
-      return res.status(200).json({
-        success: true,
-        message: 'Login successful',
-        user: { id: user.id, email: user.email, role: user.role }
-      });
+
+      try {
+        // This function updates the DB (last_login), which triggers the NEW User Hook
+        await handleNewLogin(user);
+
+        // This function creates a DB entry, which triggers the Audit Log Hook
+        await logOperation({
+          operation: 'LOGIN',
+          description: `User ${user.email} logged in.`,
+          affectedResource: 'users',
+          afterState: { id: user.id, email: user.email },
+          initiator: user.email, 
+        });
+
+        // REMOVED: Manual io.emit('users_updated') 
+        // The db.User.afterUpdate hook handles it now.
+
+        return res.status(200).json({
+          success: true,
+          message: 'Login successful',
+          user: { id: user.id, email: user.email, role: user.role }
+        });
+      } catch (error) {
+        return next(error);
+      }
     });
   })(req, res, next);
 };
 
 export const logout = (req, res, next) => {
-  req.logout((err) => {
+  const user = req.user;
+  if (!user) {
+      res.clearCookie('user_sid');
+      return res.status(200).json({ message: 'Session already expired, logged out.' });
+  }
+
+  const userEmail = user.email;
+  const userId = user.id;
+
+  req.logout(async (err) => {
     if (err) return next(err);
-    // Destroy the session in MariaDB
-    req.session.destroy(() => {
-        res.clearCookie('user_sid'); // Clear cookie on client
+    
+    try {
+      const fullUser = await db.User.findByPk(userId);
+      if (fullUser) {
+        fullUser.isOnline = false;
+        fullUser.socketId = [];
+        
+        // Saving triggers the NEW User Hook (emitUserUpdate)
+        await fullUser.save(); 
+      }
+
+      await logOperation({
+          operation: 'LOGOUT', 
+          description: `User ${userEmail} logged out.`,
+          affectedResource: 'users',
+          afterState: { id: userId, email: userEmail },
+          initiator: userEmail, 
+      });
+
+      // REMOVED: Manual io.emit('users_updated')
+
+      req.session.destroy(() => {
+        res.clearCookie('user_sid');
         res.status(200).json({ success: true, message: 'Logged out' });
-    });
+      });
+    } catch (error) {
+      return next(error);
+    }
   });
 };
 
@@ -37,9 +89,7 @@ export const checkAuth = (req, res) => {
       id: req.user.id,
       email: req.user.email,
       role: req.user.role,
-      // add other public fields here if needed
     };
-
     res.json({ isAuthenticated: true, user: safeUser });
   } else {
     res.status(401).json({ isAuthenticated: false });

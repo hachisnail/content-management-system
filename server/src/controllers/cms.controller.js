@@ -1,4 +1,4 @@
-import { getIO } from '../socket.js'; // Import the helper
+import { getIO } from '../socket-store.js'; // Import the helper
 import ArticleService from '../services/article.service.js';
 
 export const updateArticle = async (req, res, next) => {

@@ -17,10 +17,22 @@ export const config = {
     user: requireEnv('DB_USER'),
     pass: requireEnv('DB_PASS'),
     host: requireEnv('DB_HOST'),
-    dialect: 'mariadb', 
+    dialect: 'mariadb',
   },
-  jwt: {
-    secret: requireEnv('JWT_SECRET'),
-    expiresIn: '7d',
+  session: {
+    secret: process.env.SESSION_SECRET || 'a-default-session-secret-for-development',
   },
+  mail: {
+    host: process.env.SMTP_HOST,
+    port: process.env.SMTP_PORT,
+    secure: process.env.SMTP_SECURE === 'true',
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS,
+  },
+cors: {
+  origin: process.env.CORS_ORIGIN 
+    ? process.env.CORS_ORIGIN.split(',') 
+    : ['http://localhost:5173'], 
+},
+
 };
