@@ -1,20 +1,23 @@
-import React from 'react';
+import { useAuth } from "../../context/AuthContext";
 
-const Dashboard = ({ user }) => {
+const Dashboard = () => {
+const { user,error, loading } = useAuth();
+
+  console.log(user)
+
+  if (loading) return <div>Loading...</div>;
+  if (error) return <div>Error: {error}</div>;
+
   return (
-    <div className="p-6 bg-white shadow-md rounded-lg">
-      <h2 className="text-2xl font-bold mb-4">Dashboard</h2>
-      {user ? (
-        <div>
-          <p className="text-lg">Welcome, <span className="font-semibold">{user.username || user.email}</span>!</p>
-          <p className="text-lg">Your Role: <span className="font-semibold">{user.role}</span></p>
-          <p className="mt-4 text-gray-600">This is a protected page. You can access it because you are logged in.</p>
-        </div>
-      ) : (
-        <p className="text-lg text-red-600">You are not logged in. Please log in to view this page.</p>
-      )}
+    <div className="bg-white shadow overflow-hidden sm:rounded-lg">
+      <div className="px-4 py-5 sm:px-6">
+        <h3 className="text-lg leading-6 font-medium text-gray-900">Dashboard</h3>
+        <p className="mt-1 max-w-2xl text-sm text-gray-500">Welcome back, {user.firstName}.</p>
+      </div>
+      <div className="border-t border-gray-200 px-4 py-5 sm:p-0">
+         {/* Dashboard Content */}
+      </div>
     </div>
   );
 };
-
 export default Dashboard;

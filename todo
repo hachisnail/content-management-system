@@ -1,4 +1,10 @@
-implement file handling system
+Implement file handling system
 -file serving
 -file uploading
 -file accessiblity
+
+
+implement user controll
+-change name, contact, role, password, etc.
+
+further test rbac functionality

@@ -14,16 +14,16 @@ export const initializePassport = (passport) => {
           const user = await db.User.findOne({ where: { email } });
 
           if (!user) {
-            return done(null, false, { message: 'Incorrect email.' });
+            return done(null, false, { message: 'Incorrect email/password.' });
           }
 
           if (!user.password) {
-            return done(null, false, { message: 'Incorrect password.' });
+            return done(null, false, { message: 'Incorrect email/password.' });
           }
           // Check Password
           const isMatch = await bcrypt.compare(password, user.password);
           if (!isMatch) {
-            return done(null, false, { message: 'Incorrect password.' });
+            return done(null, false, { message: 'Incorrect email/password.' });
           }
 
           // Success! Return the user

@@ -11,6 +11,7 @@ router.post('/submit', DonationController.submitDonation);
 // PROTECTED ROUTES (Requires Login)
 // Only staff can view list or change status
 router.get('/', isAuthenticated, DonationController.getAllDonations);
+
 router.patch(
   '/:id/status', 
   isAuthenticated, 

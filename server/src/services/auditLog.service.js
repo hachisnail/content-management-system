@@ -8,3 +8,7 @@ export const findAll = async () => {
     limit: 100 // Safety limit, maybe paginate later
   });
 };
+
+export const findById = async (id) => {
+  return await db.AuditLog.findByPk(id);
+};

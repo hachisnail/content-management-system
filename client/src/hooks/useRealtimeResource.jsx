@@ -2,30 +2,58 @@ import { useState, useEffect } from 'react';
 import api from '../api';
 import socket from '../socket';
 
-function useRealtimeResource(resourceName) {
-  const [data, setData] = useState([]);
+/**
+ * Flexible Real-time Hook
+ * * @param {string} resourceName - The resource key (e.g., 'users', 'donations')
+ * @param {Object} options - Configuration options
+ * @param {string|number} [options.id] - If present, fetches a SINGLE item. If null, fetches a LIST.
+ * @param {boolean} [options.prepend] - If true, new items are added to the TOP of the list (useful for logs).
+ * @param {boolean} [options.isEnabled] - If false, the hook pauses and does nothing (useful for waiting on auth).
+ */
+function useRealtimeResource(resourceName, { id = null, prepend = false, isEnabled = true } = {}) {
+  // 1. Initialize State
+  // Default to null for Singleton, [] for List
+  const [data, setData] = useState(id ? null : []);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   useEffect(() => {
+    // Safety Check: If disabled (e.g. no user logged in yet), stop here.
+    if (!isEnabled) {
+      setLoading(false);
+      return;
+    }
+
     let isMounted = true;
     setLoading(true);
+    setError(null);
 
-    // 1. Initial Snapshot (GET Request)
+    // ============================================================
+    // 2. Initial Snapshot (REST API)
+    // ============================================================
     const fetchData = async () => {
       try {
-        const response = await api.get(`/${resourceName}`);
+        // Dynamic Endpoint: Get All vs Get One
+        const endpoint = id ? `/${resourceName}/${id}` : `/${resourceName}`;
+        
+        const response = await api.get(endpoint);
         
         if (isMounted) {
-          if (Array.isArray(response)) {
-             setData(response);
-          } else if (response && Array.isArray(response.data)) {
-             setData(response.data);
+          // Normalize data (handle wrappers like { data: ... } if your API uses them)
+          const payload = response.data || response;
+
+          if (id) {
+            // SINGLETON MODE
+            setData(payload); 
           } else {
-             console.warn(`[useRealtimeResource] Expected array for ${resourceName}, got:`, response);
-             setData([]); 
+            // LIST MODE
+            if (Array.isArray(payload)) {
+              setData(payload);
+            } else {
+              console.warn(`[useRealtimeResource] Expected array for ${resourceName}, got:`, payload);
+              setData([]); 
+            }
           }
-          setError(null);
         }
       } catch (err) {
         if (isMounted) {
@@ -33,17 +61,17 @@ function useRealtimeResource(resourceName) {
           setError(err.message || 'Failed to load data');
         }
       } finally {
-        if (isMounted) setLoading(false);
+        if (isMounted) {
+          setLoading(false);
+        }
       }
     };
 
     fetchData();
 
     // ============================================================
-    // 2. SECURITY UPGRADE: Subscribe to the Room
+    // 3. Real-time Subscription
     // ============================================================
-    
-    // Define the handler specifically so we can remove ONLY this one later
     const handleSubscribe = () => {
       socket.emit('subscribe_resource', resourceName);
     };
@@ -54,30 +82,67 @@ function useRealtimeResource(resourceName) {
       socket.on('connect', handleSubscribe);
     }
 
-    // 3. Define Handlers
+    // ============================================================
+    // 4. Event Handlers
+    // ============================================================
+    
+    // A. Handle Create
     const handleCreated = (newItem) => {
+      // In Singleton mode, we usually ignore 'created' events unless logic dictates otherwise
+      if (id) return; 
+
       setData((prevData) => {
+        if (!Array.isArray(prevData)) return prevData;
+        // Avoid duplicates
         if (prevData.find(item => item.id === newItem.id)) return prevData;
-        return [...prevData, newItem];
+        
+        // Prepend (Newest Top) or Append (Oldest Top)
+        return prepend ? [newItem, ...prevData] : [...prevData, newItem];
       });
     };
 
+    // B. Handle Update
     const handleUpdated = (updatedItem) => {
-      setData((prevData) =>
-        prevData.map((item) =>
-          item.id === updatedItem.id ? { ...item, ...updatedItem } : item
-        )
-      );
+      if (id) {
+        // Singleton: Update only if IDs match
+        setData((prevItem) => {
+          if (!prevItem || String(prevItem.id) !== String(updatedItem.id)) return prevItem;
+          return { ...prevItem, ...updatedItem };
+        });
+      } else {
+        // List: Find and replace
+        setData((prevData) => {
+          if (!Array.isArray(prevData)) return prevData;
+          return prevData.map((item) =>
+            item.id === updatedItem.id ? { ...item, ...updatedItem } : item
+          );
+        });
+      }
     };
 
+    // C. Handle Delete
     const handleDeleted = (deletedItemOrId) => {
+      // Some APIs send the whole object, some just the ID
       const idToDelete = deletedItemOrId.id || deletedItemOrId;
-      setData((prevData) =>
-        prevData.filter((item) => item.id !== idToDelete)
-      );
+
+      if (id) {
+        // Singleton: If our item is deleted, clear it
+        setData((prevItem) => {
+          if (prevItem && String(prevItem.id) === String(idToDelete)) {
+            return null; 
+          }
+          return prevItem;
+        });
+      } else {
+        // List: Filter it out
+        setData((prevData) => {
+          if (!Array.isArray(prevData)) return prevData;
+          return prevData.filter((item) => item.id !== idToDelete);
+        });
+      }
     };
 
-    // 4. Attach Listeners
+    // Attach Listeners
     socket.on(`${resourceName}_created`, handleCreated);
     socket.on(`${resourceName}_updated`, handleUpdated);
     socket.on(`${resourceName}_deleted`, handleDeleted);
@@ -91,13 +156,11 @@ function useRealtimeResource(resourceName) {
       socket.off(`${resourceName}_created`, handleCreated);
       socket.off(`${resourceName}_updated`, handleUpdated);
       socket.off(`${resourceName}_deleted`, handleDeleted);
-      
-      // FIXED: Remove ONLY our specific subscribe handler
       socket.off('connect', handleSubscribe); 
     };
-  }, [resourceName]);
+  }, [resourceName, id, prepend, isEnabled]); 
 
   return { data, loading, error };
 }
 
-export default useRealtimeResource;
+export default useRealtimeResource; 

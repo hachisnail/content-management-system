@@ -25,13 +25,10 @@ export const login = (req, res, next) => {
           initiator: user.email, 
         });
 
-        // REMOVED: Manual io.emit('users_updated') 
-        // The db.User.afterUpdate hook handles it now.
-
         return res.status(200).json({
           success: true,
           message: 'Login successful',
-          user: { id: user.id, email: user.email, role: user.role }
+          user: { id: user.id, email: user.email, role: user.role },
         });
       } catch (error) {
         return next(error);

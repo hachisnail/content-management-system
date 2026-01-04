@@ -42,17 +42,26 @@ const defineUserModel = (sequelize) => {
       type: DataTypes.DATEONLY,
       allowNull: true,
     },
-    role: {
-      type: DataTypes.ENUM(
-        'super_admin',
-        'admin',
-        'inventory_manager',
-        'acquisitions_manager',
-        'articles_manager',
-        'appointments_manager',
-        'viewer'
-      ),
-      defaultValue: 'viewer',
+  role: {
+      // Switch from ENUM to JSON to support multiple roles ['admin', 'viewer']
+      type: DataTypes.JSON, 
+      allowNull: false,
+      defaultValue: ["viewer"], // Default is now an array
+      // Getter/Setter ensures it always behaves like an array in your code
+      get() {
+        const rawValue = this.getDataValue('role');
+        // Handle cases where DB might still have old string values
+        if (typeof rawValue === 'string') {
+            // Check if it's a JSON string or just a plain role string
+            try { return JSON.parse(rawValue); } catch { return [rawValue]; }
+        }
+        return rawValue || [];
+      },
+      set(value) {
+        // Ensure we always store an array
+        const valToStore = Array.isArray(value) ? value : [value];
+        this.setDataValue('role', valToStore);
+      }
     },
     status: {
       type: DataTypes.ENUM('pending', 'active', 'disabled'),

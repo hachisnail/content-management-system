@@ -6,34 +6,99 @@ import { logOperation } from './services/logger.js';
 import { config } from './config/env.js';
 import { corsOptions } from './config/cors.js';
 
+// 1. IMPORT RBAC CONFIGURATION
+import { ROLE_DEFINITIONS, PERMISSIONS } from './config/permissions.js';
+
 /**
  * HELPER: Unified Logging
- * 1. Logs to console (in development)
- * 2. Broadcasts to 'server_logs' room (for Admin Dashboard streaming)
  */
+const formatArg = (arg) => {
+  if (arg instanceof Error) {
+    return `[ERROR: ${arg.message}] ${arg.stack}`;
+  }
+  if (typeof arg === 'object') {
+    try {
+      return JSON.stringify(arg);
+    } catch (e) {
+      return '[Circular/Unserializable Object]';
+    }
+  }
+  return arg;
+};
+
 const logInfo = (message, ...args) => {
-  // 1. Console Output (Dev only)
   if (config.app.env !== 'production') {
     console.log(`[Socket] ${message}`, ...args);
   }
 
-  // 2. Broadcast to Admins (Stream)
   try {
     const io = getIO();
     if (io) {
-      // Create a formatted string for the dashboard
       const payload = args.length > 0 
-        ? `${message} ${args.map(a => typeof a === 'object' ? JSON.stringify(a) : a).join(' ')}`
+        ? `${message} ${args.map(formatArg).join(' ')}`
         : message;
 
       io.to('server_logs').emit('server_log', { 
+        type: 'info',
         message: payload,
         timestamp: new Date()
       });
     }
-  } catch (e) {
-    // Ignore broadcast errors during startup (when IO isn't ready yet)
-  }
+  } catch (e) { /* Ignore startup errors */ }
+};
+
+const logError = (message, ...args) => {
+  console.error(`[Socket ERROR] ${message}`, ...args);
+
+  try {
+    const io = getIO();
+    if (io) {
+      const payload = args.length > 0 
+        ? `${message} ${args.map(formatArg).join(' ')}`
+        : message;
+
+      io.to('server_logs').emit('server_log', { 
+        type: 'error',
+        message: payload,
+        timestamp: new Date()
+      });
+    }
+  } catch (e) { /* Ignore */ }
+};
+
+/**
+ * HELPER: Check Permission Dynamic
+ */
+const hasPermission = (user, requiredPermission) => {
+  if (!user || !user.role) return false;
+  
+  // Normalize roles to array (DB might return string or array)
+  const userRoles = Array.isArray(user.role) ? user.role : [user.role];
+
+  // Check if ANY of the user's roles allow this permission
+  return userRoles.some(role => {
+    const allowedPermissions = ROLE_DEFINITIONS[role] || [];
+    return allowedPermissions.includes(requiredPermission);
+  });
+};
+
+/**
+ * CONFIG: Resource Map
+ * Maps a socket room/resource to a specific Permission Requirement.
+ */
+const RESOURCE_PERMISSIONS = {
+  // Public (No permission required, handled separately)
+  'donations': null, 
+
+  // Basic Auth (Just needs to be logged in)
+  'museum_events': 'AUTHENTICATED',
+  'inventory': 'AUTHENTICATED',
+
+  // RBAC Protected
+  'users': PERMISSIONS.VIEW_MONITOR,         // "Monitor" page needs users stream
+  'audit_logs': PERMISSIONS.VIEW_AUDIT_LOGS, // "Audit Logs" page
+  'server_logs': PERMISSIONS.VIEW_SOCKET_TEST, // "Socket Test" page console
+  'reports': PERMISSIONS.VIEW_ADMIN_TOOLS,   
 };
 
 export const initSocket = (httpServer, sessionMiddleware) => {
@@ -41,15 +106,12 @@ export const initSocket = (httpServer, sessionMiddleware) => {
     cors: corsOptions
   });
 
-  // Pass the instance to the Store immediately
   setIO(io);
 
-  // Middleware Setup
   io.engine.use(sessionMiddleware);
   io.engine.use(passport.initialize());
   io.engine.use(passport.session());
 
-  // Authentication Middleware
   io.use((socket, next) => {
     if (socket.request.user) {
       socket.user = socket.request.user;
@@ -60,43 +122,30 @@ export const initSocket = (httpServer, sessionMiddleware) => {
     next();
   });
 
-  // Main Connection Handler
   io.on('connection', async (socket) => {
     
-    // ============================================================
-    // 0. RATE LIMITING MIDDLEWARE (Safety Layer)
-    // ============================================================
-    // Allow max 10 events per second per socket
+    // 0. RATE LIMITING
     const RATE_LIMIT = 10; 
     const RATE_WINDOW_MS = 1000; 
-    
-    const rateLimiter = {
-      count: 0,
-      lastReset: Date.now()
-    };
+    const rateLimiter = { count: 0, lastReset: Date.now() };
 
     socket.use(([event, ...args], next) => {
       const now = Date.now();
-      
       if (now - rateLimiter.lastReset > RATE_WINDOW_MS) {
         rateLimiter.count = 0;
         rateLimiter.lastReset = now;
       }
-
       if (rateLimiter.count >= RATE_LIMIT) {
         if (config.app.env !== 'production') {
            console.warn(`[RateLimit] Socket ${socket.id} throttled. Event: ${event}`);
         }
         return next(new Error('Rate limit exceeded. Please slow down.'));
       }
-
       rateLimiter.count++;
       next();
     });
 
-    // ============================================================
     // 1. CONNECTION & SESSION LOGIC
-    // ============================================================
     if (socket.isGuest) {
       logInfo(`Guest connected: ${socket.id}`);
     } else {
@@ -104,78 +153,86 @@ export const initSocket = (httpServer, sessionMiddleware) => {
       
       try {
         const user = await db.User.findByPk(socket.user.id);
+        
         if (user) {
-          // A. Enforce Single Session
-          if (user.socketId && user.socketId.length > 0) {
-            io.to(`user:${user.id}`).emit('force_logout', { 
-              message: 'You have been logged out because you logged in from another device.' 
-            });
+          const currentSessionId = socket.request.sessionID || socket.request.session?.id;
+          
+          let activeSockets = user.socketId || [];
+          const socketsToKeep = [];
 
-            await logOperation({
-                operation: 'LOGOUT',
-                description: 'Concurrent socket connection revoked previous session.',
-                affectedResource: 'users',
-                afterState: { id: user.id },
-                initiator: user.email
-            });
-          }
+          activeSockets.forEach((oldSocketId) => {
+             const oldSocket = io.sockets.sockets.get(oldSocketId);
+             if (oldSocket) {
+                 const oldSessionId = oldSocket.request.sessionID || oldSocket.request.session?.id;
+                 
+                 if (oldSessionId === currentSessionId) {
+                     // Same session (new tab) -> Keep it
+                     socketsToKeep.push(oldSocketId);
+                 } else {
+                     // Different session (new device) -> Kick it
+                     oldSocket.emit('force_logout', { 
+                         message: 'You have been logged out because you signed in on another device.' 
+                     });
+                     oldSocket.disconnect(true);
+                     logInfo(`Kicked old session for ${user.email} (Socket: ${oldSocketId})`);
+                 }
+             }
+          });
 
-          // B. Register Socket
-          user.socketId = [socket.id];
+          socketsToKeep.push(socket.id);
+
+          user.socketId = socketsToKeep;
           user.isOnline = true;
           user.last_active = new Date();
-          await user.save(); 
+          await user.save();
 
-          // C. Join Rooms
           socket.join(`user:${user.id}`);
-          socket.join(`role:${user.role}`);
-
+          
+          // Join rooms for all roles (useful for role-based notifications)
+          if (Array.isArray(user.role)) {
+            user.role.forEach(r => socket.join(`role:${r}`));
+          } else {
+            socket.join(`role:${user.role}`);
+          }
+          
           socket.emit('log', { message: 'Welcome!', user: user.email });
         }
       } catch (err) {
-        console.error('Error handling user connection:', err);
+        logError('Error handling user connection:', err);
       }
     }
 
     // ============================================================
-    // 2. SECURE RESOURCE SUBSCRIPTION
+    // 2. SECURE SUBSCRIPTION (RBAC INTEGRATED)
     // ============================================================
     socket.on('subscribe_resource', (resourceName) => {
-      const canAccess = (resource) => {
-        const userRole = socket.user ? socket.user.role : 'guest';
-        
-        switch (resource) {
-          // Public
-          case 'donations': 
-            return true; 
-          
-          // Authenticated
-          case 'museum_events':
-          case 'inventory': 
-            return !socket.isGuest;
+      const requiredPerm = RESOURCE_PERMISSIONS[resourceName];
 
-          // Admin Only (Includes server_logs for streaming)
-          case 'server_logs':
-          case 'users':           
-          case 'audit_logs':      
-          case 'reports':
-            return ['super_admin', 'admin'].includes(userRole);
+      let allowed = false;
 
-          default:
-            return false;
-        }
-      };
+      if (requiredPerm === null) {
+        // Public Resource (e.g., Donations)
+        allowed = true;
+      } else if (requiredPerm === 'AUTHENTICATED') {
+        // Basic Auth
+        allowed = !socket.isGuest;
+      } else if (requiredPerm) {
+        // RBAC Check
+        allowed = !socket.isGuest && hasPermission(socket.user, requiredPerm);
+      } else {
+        // Unknown Resource (Deny by default)
+        allowed = false;
+      }
 
-      if (canAccess(resourceName)) {
+      if (allowed) {
         socket.join(resourceName);
-        
-        // Prevent infinite logging loops if we are watching the log stream
+        // Don't log server_logs subscriptions to avoid infinite loops
         if (resourceName !== 'server_logs') {
             logInfo(`Socket ${socket.id} subscribed to ${resourceName}`);
         }
       } else {
         if (config.app.env !== 'production') {
-           console.warn(`[Socket] Unauthorized subscription: ${socket.id} -> ${resourceName}`);
+           console.warn(`[Socket] Access Denied: ${socket.id} -> ${resourceName}`);
         }
         socket.emit('log', { message: 'Access Denied: Unauthorized resource.' });
       }
@@ -183,24 +240,18 @@ export const initSocket = (httpServer, sessionMiddleware) => {
 
     socket.on('unsubscribe_resource', (resourceName) => {
       socket.leave(resourceName);
+      if (resourceName !== 'server_logs') {
+        logInfo(`Socket ${socket.id} unsubscribed from ${resourceName}`);
+      }
     });
 
-    // ============================================================
-    // 3. DONATION LOGIC
-    // ============================================================
+    // 3. DONATIONS
     socket.on('create_donation', async (data) => {
       try {
-        if (socket.isGuest) {
-          socket.emit('log', { message: 'Login required.' });
-          return;
-        }
+        if (socket.isGuest) return socket.emit('log', { message: 'Login required.' });
 
         const { donorName, donorEmail, itemDescription, quantity } = data;
-        
-        if (!itemDescription || !quantity) {
-          socket.emit('log', { message: 'Missing fields.' });
-          return;
-        }
+        if (!itemDescription || !quantity) return socket.emit('log', { message: 'Missing fields.' });
 
         const donation = await db.Donation.create({
           donorName: donorName || socket.user.email,
@@ -218,18 +269,18 @@ export const initSocket = (httpServer, sessionMiddleware) => {
             initiator: socket.user.email
           });
         }
-
       } catch (error) {
-        console.error('Error creating donation:', error);
+        logError('Error creating donation:', error);
         socket.emit('log', { message: 'Error creating donation.' });
       }
     });
 
     // ============================================================
-    // 4. ADMIN ACTIONS
+    // 4. ADMIN ACTIONS (RBAC INTEGRATED)
     // ============================================================
     socket.on('force_disconnect_user', async ({ userId }) => {
-      if (socket.user && socket.user.role === 'super_admin') {
+      // DYNAMIC CHECK: Does the user have the 'disconnect_users' permission?
+      if (!socket.isGuest && hasPermission(socket.user, PERMISSIONS.DISCONNECT_USERS)) {
         try {
           const targetUser = await db.User.findByPk(userId);
           if (targetUser) {
@@ -250,7 +301,7 @@ export const initSocket = (httpServer, sessionMiddleware) => {
             targetUser.socketId = [];
             await targetUser.save();
             
-            // D. Log Operation
+            // D. Log
             await logOperation({
                 operation: 'FORCE_LOGOUT',
                 description: `Administrator ${socket.user.email} forced logout for user ${targetUser.email}.`,
@@ -260,16 +311,14 @@ export const initSocket = (httpServer, sessionMiddleware) => {
             });
           }
         } catch (error) {
-          console.error('Error forcing user disconnect:', error);
+          logError('Error forcing user disconnect:', error);
         }
       } else {
         socket.emit('log', { message: 'Unauthorized action.' });
       }
     });
 
-    // ============================================================
-    // 5. DISCONNECT HANDLER
-    // ============================================================
+    // 5. DISCONNECT
     socket.on('disconnect', async () => {
       if (!socket.isGuest) {
         try {
@@ -280,16 +329,16 @@ export const initSocket = (httpServer, sessionMiddleware) => {
             if (user.socketId.length === 0) user.isOnline = false;
             user.last_active = new Date();
             await user.save();
-            
             logInfo(`User disconnected: ${user.email}`);
           }
         } catch (error) {
-          console.error('Disconnect error:', error);
+          logError('Disconnect error:', error);
         }
       } else {
          logInfo(`Guest disconnected: ${socket.id}`);
       }
     });
+
   });
 
   return io;

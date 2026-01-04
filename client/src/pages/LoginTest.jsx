@@ -2,18 +2,21 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import api from '../api';
+import { useAuth } from '../context/AuthContext'; // 1. Import Auth Context
 
-const LoginTest = ({ handleLogin: appHandleLogin, isAuthenticated }) => {
+const LoginTest = () => { // 2. Remove props
+  const { login, isAuthenticated } = useAuth(); // 3. Get login function from Context
+  
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [localMessage, setLocalMessage] = useState('');
-  const [messageType, setMessageType] = useState(''); // 'success' or 'error'
+  const [messageType, setMessageType] = useState(''); 
   const [loading, setLoading] = useState(false);
   
   const navigate = useNavigate();
   const location = useLocation();
 
-  // 1. Check for URL Query Params (Logout Reasons)
+  // Check for URL Query Params (Logout Reasons)
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     const sessionExpired = params.get('session_expired');
@@ -31,7 +34,7 @@ const LoginTest = ({ handleLogin: appHandleLogin, isAuthenticated }) => {
     }
   }, [location.search]);
 
-  // 2. Redirect if already authenticated
+  // Redirect if already authenticated
   useEffect(() => {
     if (isAuthenticated) {
       const from = location.state?.from?.pathname || '/dashboard';
@@ -48,27 +51,32 @@ const LoginTest = ({ handleLogin: appHandleLogin, isAuthenticated }) => {
     try {
       const response = await api.login(email, password);
       
-      if (appHandleLogin) {
-        appHandleLogin(response.user || response); 
+      // 4. Update Global Auth State
+      // The API returns { success: true, message: '...', user: {...} }
+      // We pass the user object to the context
+      if (response.user) {
+        login(response.user); 
+        setLocalMessage('Login successful! Redirecting...');
+        setMessageType('success');
+      } else {
+        throw new Error("Invalid server response");
       }
-      
-      setLocalMessage('Login successful! Redirecting...');
-      setMessageType('success');
+
     } catch (error) {
-      setLocalMessage(error.message);
+      setLocalMessage(error.message || 'Login failed');
       setMessageType('error');
     } finally {
       setLoading(false);
     }
   };
 
+  // If already logged in, don't show the form (useEffect will redirect)
   if (isAuthenticated) return null;
 
   return (
     <div className="p-6 bg-white shadow-md rounded-lg max-w-md mx-auto mt-10">
       <h2 className="text-2xl font-bold mb-4 text-center">Login Test</h2>
       
-      {/* Dynamic Alert Box */}
       {localMessage && (
         <div className={`mb-4 p-3 text-sm rounded border ${
           messageType === 'error' 

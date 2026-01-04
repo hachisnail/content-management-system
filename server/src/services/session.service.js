@@ -1,6 +1,5 @@
 import { db } from '../models/index.js';
 import { getIO } from '../socket-store.js';
-// ADD THIS IMPORT
 import { logOperation } from './logger.js'; 
 
 export const handleNewLogin = async (user) => {
@@ -22,7 +21,7 @@ export const handleNewLogin = async (user) => {
         description: `Previous session revoked due to new login on device/browser.`,
         affectedResource: 'users',
         afterState: { id: user.id, email: user.email },
-        initiator: user.email // The user themselves initiated this by logging in again
+        initiator: user.email 
       });
     }
 

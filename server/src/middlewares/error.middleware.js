@@ -1,3 +1,6 @@
+import { config } from "../config/env";
+
+
 export const errorHandler = (err, req, res, next) => {
   console.error(' Error:', err.stack);
 
@@ -7,6 +10,6 @@ export const errorHandler = (err, req, res, next) => {
   res.status(statusCode).json({
     success: false,
     error: message,
-    stack: process.env.NODE_ENV === 'development' ? err.stack : undefined,
+    stack: config.app.env === 'development' ? err.stack : undefined,
   });
 };

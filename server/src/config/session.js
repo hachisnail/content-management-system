@@ -35,8 +35,8 @@ export const sessionConfig = {
   saveUninitialized: false, // Helps with login logic (only save if modified/logged in)
   cookie: {
     secure: config.app.env === 'production', // true if using HTTPS
-    httpOnly: true, // Security: JS cannot read this cookie
-    maxAge: 1000 * 60 * 60 * 24, // 1 Day
+    httpOnly: true, 
+    maxAge: 12 * 60 * 60 * 1000, // 1/2 Day
     sameSite: 'lax' // Helps with CSRF
   }
 };

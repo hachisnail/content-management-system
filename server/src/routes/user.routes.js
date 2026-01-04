@@ -12,5 +12,6 @@ router.post('/complete-registration', UserController.completeRegistration);
 
 // PROTECTED: Staff can view list of users
 router.get('/', isAuthenticated, UserController.getAllUsers);
+router.get('/:id', isAuthenticated, UserController.getUserById);
 
 export { router as userRoutes };

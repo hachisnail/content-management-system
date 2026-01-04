@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import useRealtimeResource from '../../hooks/useRealtimeResource';
+import { LoadingSpinner, ErrorAlert } from '../../components/StateComponents';
 
 // Simple Modal Component for viewing details
 const DetailsModal = ({ log, onClose }) => {
@@ -76,8 +77,21 @@ function AuditLogs() {
     }
   };
 
-  if (loading) return <div className="p-6 text-gray-500">Loading audit logs...</div>;
-  if (error) return <div className="p-6 text-red-500">Error loading logs: {error}</div>;
+if (loading) {
+    return (
+      <div className="bg-white shadow-md rounded-lg min-h-[500px]">
+        <LoadingSpinner message="Syncing audit logs..." />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="bg-white shadow-md rounded-lg">
+        <ErrorAlert message={error} />
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 bg-white shadow-md rounded-lg h-full flex flex-col">
