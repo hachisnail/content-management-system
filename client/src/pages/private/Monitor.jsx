@@ -1,123 +1,253 @@
 import React, { useState, useEffect } from 'react';
+import { Power, Check, Filter, RefreshCcw, Activity, MoreHorizontal, Trash2, Eye, FileText } from 'lucide-react';
+
 import { formatTimeAgo } from '../../utils/time';
 import useRealtimeResource from '../../hooks/useRealtimeResource';
+import { useTableControls } from '../../hooks/useTableControls'; 
 import socket from '../../socket';
-import { LoadingSpinner, ErrorAlert } from '../../components/StateComponents';
 import { useAuth } from '../../context/AuthContext';
-
-// CHANGED: Import the Hook, not the static file
 import { useConfig } from '../../context/ConfigContext';
 
-const INACTIVE_THRESHOLD_MS = 1 * 60 * 1000; 
+import { 
+  DataTable, 
+  Badge, 
+  Button, 
+  Alert, 
+  ConfirmationModal, 
+  Dropdown 
+} from '../../components/UI';
+
+const INACTIVE_THRESHOLD_MS = 60 * 1000; 
 const UI_REFRESH_INTERVAL_MS = 1000;
 
 function Monitor() {
-  const { data: users = [], loading: usersLoading, error: usersError } = useRealtimeResource('users');
   const { user: currentUser } = useAuth(); 
-
-  // CHANGED: Get permissions from the dynamic config context
   const { hasPermission, PERMISSIONS } = useConfig();
+  const [validationError, setValidationError] = useState(null);
+
+  // --- 1. TABLE CONTROLS ---
+  // Managed state for search, pagination, and dynamic sorting
+  const { 
+    page, setPage, 
+    limit, 
+    search, setSearch, 
+    filters, handleFilterChange, 
+    handleSortChange,
+    queryParams 
+  } = useTableControls({ defaultLimit: 10 });
+
+  // --- 2. DATA FETCHING ---
+  // Real-time hook synced with server-side query params
+  const { data, meta, loading, error } = useRealtimeResource('users', { queryParams });
+
+  // Handle flexible backend response structures
+  const users = Array.isArray(data) ? data : (data?.rows || []);
+  const totalCount = meta?.totalItems || 0;
 
   const [now, setNow] = useState(Date.now());
+  const [disconnectTarget, setDisconnectTarget] = useState(null);
+  const [selectedUsers, setSelectedUsers] = useState([]);
+  const [showBulkConfirm, setShowBulkConfirm] = useState(false);
 
+  // UI Tick for "Time Ago" and "Idle" status accuracy
   useEffect(() => {
-    const interval = setInterval(() => {
-      setNow(Date.now());
-    }, UI_REFRESH_INTERVAL_MS);
+    const interval = setInterval(() => setNow(Date.now()), UI_REFRESH_INTERVAL_MS);
     return () => clearInterval(interval);
   }, []);
 
-  const handleForceDisconnect = (userId) => {
-    if (window.confirm('Are you sure you want to force disconnect this user?')) {
-      socket.emit('force_disconnect_user', { userId });
+  const handleSingleDisconnect = () => {
+    if (disconnectTarget) {
+      socket.emit('force_disconnect_user', { userId: disconnectTarget });
+      setDisconnectTarget(null);
     }
+  };
+
+  const handleBulkDisconnect = () => {
+    // 1. Filter selection for eligible users (Online & Not Self)
+    const eligibleIds = selectedUsers.filter(userId => {
+      const userObject = users.find(u => u.id === userId);
+      return userObject && userObject.isOnline && userObject.id !== currentUser.id;
+    });
+
+    // 2. Validate selection
+    if (eligibleIds.length === 0) {
+      setValidationError("No eligible online users were selected for disconnection.");
+      setShowBulkConfirm(false);
+      setTimeout(() => setValidationError(null), 5000); // Auto-clear
+      return;
+    }
+
+    // 3. Emit events and clean up
+    eligibleIds.forEach(userId => socket.emit('force_disconnect_user', { userId }));
+    setValidationError(null);
+    setShowBulkConfirm(false);
+    setSelectedUsers([]); 
   };
 
   const getUserStatus = (user) => {
-    if (!user.isOnline) return { type: 'offline', label: 'Offline', badgeClass: 'bg-gray-100 text-gray-800' };
+    if (!user.isOnline) return { label: 'Offline', variant: 'neutral' };
+    if (!user.last_active) return { label: 'Online', variant: 'success' };
     
-    // If last_active is null/undefined but online, treat as just connected (Online)
-    if (!user.last_active) return { type: 'online', label: 'Online', badgeClass: 'bg-green-100 text-green-800' };
-    
-    const lastActiveTime = new Date(user.last_active).getTime();
-    if (isNaN(lastActiveTime)) return { type: 'online', label: 'Online', badgeClass: 'bg-green-100 text-green-800' };
-    
-    const diff = now - lastActiveTime;
-    const safeDiff = Math.max(0, diff);
-
-    if (safeDiff > INACTIVE_THRESHOLD_MS) {
-      return { type: 'inactive', label: 'Inactive', badgeClass: 'bg-yellow-100 text-yellow-800' };
-    }
-    return { type: 'online', label: 'Online', badgeClass: 'bg-green-100 text-green-800' };
+    const diff = now - new Date(user.last_active).getTime();
+    return diff > INACTIVE_THRESHOLD_MS 
+      ? { label: 'Idle', variant: 'warning' }
+      : { label: 'Online', variant: 'success' };
   };
 
-  if (usersLoading) return <div className="bg-white shadow-md rounded-lg min-h-[500px]"><LoadingSpinner message="Syncing users..." /></div>;
-  if (usersError) return <div className="bg-white shadow-md rounded-lg"><ErrorAlert message={usersError} /></div>;
+  const columns = [
+    { 
+      header: "User Identity", 
+      accessor: "firstName",
+      sortable: true,
+      render: (user) => (
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-lg bg-zinc-50 border border-zinc-200 flex items-center justify-center font-bold text-sm text-zinc-500 shadow-sm shrink-0">
+            {(user.firstName || "U").charAt(0).toUpperCase()}
+          </div>
+          <div className="min-w-0">
+            <div className="font-semibold text-zinc-900 leading-tight truncate">
+              {user.firstName} {user.lastName}
+            </div>
+            <div className="text-xs text-zinc-400 font-mono truncate">{user.email}</div>
+          </div>
+        </div>
+      )
+    },
+    { 
+      header: "Status & Activity", 
+      accessor: "last_active", // Using last_active for sorting timestamp
+      sortable: true,
+      render: (user) => {
+        const { label, variant } = getUserStatus(user);
+        return (
+          <div className="flex flex-col items-start gap-1.5">
+            <Badge variant={variant} className="shadow-sm">{label}</Badge>
+            <div className="flex items-center gap-1.5 text-[11px] text-zinc-400 font-mono uppercase tracking-wide">
+              <Activity size={10} />
+              <span>{user.last_active ? formatTimeAgo(user.last_active) : 'Just now'}</span>
+            </div>
+          </div>
+        );
+      }
+    },
+    ...(hasPermission(currentUser, PERMISSIONS.DISCONNECT_USERS) ? [{
+      header: "",
+      accessor: "id",
+      render: (user) => (
+        <div className="flex justify-end">
+          <Dropdown align="right" trigger={
+            <button className="p-2 text-zinc-400 hover:text-black hover:bg-zinc-100 rounded-lg transition-colors">
+              <MoreHorizontal size={18} />
+            </button>
+          }>
+            <div className="w-48">
+              <button className="w-full text-left px-4 py-2 text-sm text-zinc-700 hover:bg-zinc-50 flex items-center gap-2 font-sans"><Eye size={14} /> View Profile</button>
+              <button className="w-full text-left px-4 py-2 text-sm text-zinc-700 hover:bg-zinc-50 flex items-center gap-2 font-sans"><FileText size={14} /> View Logs</button>
+              <div className="h-px bg-zinc-100 my-1" />
+              <button 
+                onClick={() => setDisconnectTarget(user.id)}
+                disabled={!user.isOnline || user.id === currentUser.id}
+                className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors flex items-center gap-2 disabled:opacity-50 font-sans"
+              ><Power size={14} /> Force Disconnect</button>
+            </div>
+          </Dropdown>
+        </div>
+      )
+    }] : [])
+  ];
+
+  if (error) return <Alert type="error" title="Sync Error" message={error} />;
 
   return (
-    <div className="p-6 bg-white shadow-md rounded-lg">
-      <div className="flex justify-between items-center mb-4">
-        <h2 className="text-2xl font-bold">User Activity Monitor</h2>
-        <span className="text-sm text-gray-500">
-          Live Connections: {users.filter(u => u.isOnline).length}
-        </span>
+    <div className="space-y-6 animate-in fade-in duration-500">
+      {/* Header Area */}
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 border-b border-zinc-200 pb-6">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight text-zinc-900 font-sans">Live Monitor</h1>
+          <p className="text-zinc-500 text-sm mt-1 font-sans">Real-time session tracking (Synced with Server).</p>
+        </div>
+        <div className="px-3 py-1 bg-white border border-zinc-200 rounded-full text-xs font-bold text-zinc-600 shadow-sm flex items-center gap-2 font-sans">
+           <span className="relative flex h-2 w-2">
+             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+             <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+           </span>
+           {totalCount} Recorded Users
+        </div>
       </div>
 
-      <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50">
-            <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">User</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status & Activity</th>
-              
-              {/* DYNAMIC CHECK: Only show Action Header if server allows it */}
-              {hasPermission(currentUser, PERMISSIONS.DISCONNECT_USERS) && (
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-              )}
-            </tr>
-          </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
-            {users.length === 0 ? (
-                <tr><td colSpan="3" className="px-6 py-4 text-center text-gray-500">No users found.</td></tr>
-            ) : (
-                users.map((user) => {
-                  const { label, badgeClass } = getUserStatus(user);
-                  return (
-                    <tr key={user.id}>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="text-sm font-medium text-gray-900">{user.firstName} {user.lastName}</div>
-                            <div className="text-sm text-gray-500">{user.email}</div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="flex flex-col items-start">
-                                <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full mb-1 ${badgeClass}`}>
-                                    {label}
-                                </span>
-                                <span className="text-xs text-gray-500">
-                                    {user.last_active ? `Active ${formatTimeAgo(user.last_active)}` : 'Never active'}
-                                </span>
-                            </div>
-                        </td>
+      {/* Persistence and Validation Alerts */}
+      {validationError && (
+        <Alert 
+          type="warning" 
+          message={validationError} 
+          onClose={() => setValidationError(null)} 
+        />
+      )}
 
-                        {/* DYNAMIC CHECK: Only show Button if server allows it */}
-                        {hasPermission(currentUser, PERMISSIONS.DISCONNECT_USERS) && (
-                          <td className="px-6 py-4 whitespace-nowrap">
-                              <button
-                                  onClick={() => handleForceDisconnect(user.id)}
-                                  disabled={!user.isOnline || user.id === currentUser.id}
-                                  className="px-3 py-1 bg-red-50 text-red-600 text-xs font-medium rounded-md hover:bg-red-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                              >
-                                  Force Disconnect
-                              </button>
-                          </td>
-                        )}
-                    </tr>
-                  );
-                })
-            )}
-          </tbody>
-        </table>
-      </div>
+      {/* Main Table Section */}
+      <DataTable 
+        columns={columns} 
+        data={users} 
+        onSearch={setSearch} 
+        onSort={handleSortChange}
+        isLoading={loading}
+        searchPlaceholder="Find user by name or email..."
+        enableMultiSelect={hasPermission(currentUser, PERMISSIONS.DISCONNECT_USERS)}
+        onSelectionChange={setSelectedUsers}
+        serverSidePagination={{
+            totalItems: totalCount,
+            currentPage: page,
+            itemsPerPage: limit,
+            onPageChange: setPage
+        }}
+        bulkActionSlot={
+            <Button variant="danger" size="sm" icon={Trash2} onClick={() => setShowBulkConfirm(true)}>
+                Disconnect Selected
+            </Button>
+        }
+        filterSlot={
+          <Dropdown trigger={
+            <button className="flex items-center gap-2 px-3 py-2 bg-white border border-zinc-200 rounded-lg text-sm font-medium hover:bg-zinc-50 shadow-sm group transition-all font-sans">
+              <Filter size={16} className="text-zinc-500 group-hover:text-black" />
+              <span>Status: <span className="text-black font-semibold uppercase">{filters.status || 'All'}</span></span>
+            </button>
+          }>
+            <div className="w-48 font-sans">
+              {['All', 'active', 'pending'].map((status) => (
+                <button
+                  key={status}
+                  onClick={() => handleFilterChange('status', status === 'All' ? undefined : status)}
+                  className="w-full text-left px-4 py-2.5 text-sm text-zinc-700 hover:bg-zinc-50 flex items-center justify-between transition-colors"
+                >
+                  <span className="capitalize">{status}</span>
+                  {(filters.status === status || (!filters.status && status === 'All')) && <Check size={14} className="text-black" />}
+                </button>
+              ))}
+            </div>
+          </Dropdown>
+        }
+      />
+
+      {/* Modals */}
+      <ConfirmationModal 
+        isOpen={!!disconnectTarget}
+        onClose={() => setDisconnectTarget(null)}
+        onConfirm={handleSingleDisconnect}
+        title="Disconnect User?"
+        message="This will immediately terminate the user's session."
+        confirmLabel="Force Disconnect"
+        isDangerous={true}
+      />
+
+      <ConfirmationModal 
+        isOpen={showBulkConfirm}
+        onClose={() => setShowBulkConfirm(false)}
+        onConfirm={handleBulkDisconnect}
+        title={`Disconnect ${selectedUsers.length} Users?`}
+        message="Are you sure you want to force disconnect all selected users? Note: Offline users and your own session will be skipped."
+        confirmLabel={`Disconnect All (${selectedUsers.length})`}
+        isDangerous={true}
+      />
     </div>
   );
 }

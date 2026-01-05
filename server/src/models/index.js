@@ -47,4 +47,14 @@ Object.keys(db).forEach(modelName => {
   }
 });
 
+db.User.hasMany(db.AuditLog, {
+  foreignKey: 'initiator',
+  as: 'logs'
+});
+
+db.AuditLog.belongsTo(db.User, {
+  foreignKey: 'initiator',
+  as: 'user' // This alias must match the 'as' in your service include
+});
+
 export { db };

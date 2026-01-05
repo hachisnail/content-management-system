@@ -2,7 +2,6 @@ import * as UserService from '../services/user.service.js';
 
 export const createUser = async (req, res, next) => {
   try {
-    // Destructure 'roles' (plural) from body
     const { email, firstName, lastName, middleName, roles } = req.body;
     
     console.log('Creating user:', { email, roles });
@@ -49,15 +48,15 @@ export const completeRegistration = async (req, res, next) => {
 
 export const getAllUsers = async (req, res, next) => {
   try {
-    const users = await UserService.findAll();
+    // 1. Get raw data + count from Service
+    const { count, rows } = await UserService.findAll(req.query);
     
-    // --- PASSIVE CHECK LOGIC ---
-    // If a user hasn't been active in 12 hours, we tell the UI they are offline.
+    // --- PASSIVE CHECK LOGIC (Applied to the current page's rows) ---
     const TIMEOUT = 12 * 60 * 60 * 1000; // 12 Hours
     const now = Date.now();
 
-    const safeUsers = users.map(u => {
-      // Convert Sequelize instance to a plain object so we can modify it
+    const safeUsers = rows.map(u => {
+      // Convert Sequelize instance to a plain object
       const user = u.toJSON();
       
       if (user.isOnline && user.last_active) {
@@ -65,14 +64,27 @@ export const getAllUsers = async (req, res, next) => {
         
         // If the time gap is larger than 12 hours
         if (now - lastActiveTime > TIMEOUT) {
-          user.isOnline = false; // Override status for the response
-          // user.socketId = []; // Optional: hide socket ID too
+          user.isOnline = false; 
         }
       }
       return user;
     });
 
-    res.json(safeUsers);
+    // 2. Prepare Pagination Metadata
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const totalPages = Math.ceil(count / limit);
+
+    // 3. Return structured response
+    res.json({
+      data: safeUsers,
+      meta: {
+        totalItems: count,
+        itemsPerPage: limit,
+        currentPage: page,
+        totalPages: totalPages,
+      }
+    });
   } catch (error) {
     next(error);
   }
@@ -86,8 +98,6 @@ export const getUserById = async (req, res, next) => {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
 
-    // Return the user object directly (or wrap it, but your hook handles both)
-    // Using .toJSON() is safer if you want to ensure password is stripped (service handles attributes though)
     res.json(user);
   } catch (error) {
     next(error);

@@ -1,96 +1,145 @@
 import React, { useState } from 'react';
 import api from '../../api';
 import { useConfig } from '../../context/ConfigContext';
+import { 
+  Button, 
+  Input, 
+  Alert, 
+  Badge, 
+  Checkbox 
+} from '../../components/UI';
+import { UserPlus, Mail, Shield, Check } from 'lucide-react';
 
 function AdminTest() {
   const { ROLES } = useConfig();
   
-  const [email, setEmail] = useState('');
-  const [firstName, setFirstName] = useState('');
-  const [lastName, setLastName] = useState('');
-  const [middleName, setMiddleName] = useState('');
+  const [formData, setFormData] = useState({
+    email: '',
+    firstName: '',
+    lastName: '',
+    middleName: '',
+  });
   
-  // Default to Viewer, fallback to empty
   const [selectedRoles, setSelectedRoles] = useState(ROLES.VIEWER ? [ROLES.VIEWER] : []);
-  
-  const [message, setMessage] = useState('');
-  const [error, setError] = useState('');
+  const [status, setStatus] = useState({ type: null, message: '' });
   const [loading, setLoading] = useState(false);
 
+  const handleInputChange = (e) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({ ...prev, [name]: value }));
+  };
+
   const handleRoleChange = (roleValue) => {
-    setSelectedRoles(prev => {
-      if (prev.includes(roleValue)) {
-        return prev.filter(r => r !== roleValue);
-      } else {
-        return [...prev, roleValue];
-      }
-    });
+    setSelectedRoles(prev => 
+      prev.includes(roleValue) 
+        ? prev.filter(r => r !== roleValue) 
+        : [...prev, roleValue]
+    );
   };
 
   const handleInvite = async (e) => {
     e.preventDefault();
-    setError('');
-    setMessage('');
+    setStatus({ type: null, message: '' });
     setLoading(true);
 
     try {
-      // API now expects 'roles' array
       await api.post('/users', { 
-        email, firstName, lastName, middleName, 
+        ...formData, 
         roles: selectedRoles 
       });
-      setMessage(`User invited successfully.`);
-      setEmail('');
-      setFirstName('');
-      setLastName('');
-      setMiddleName('');
+      
+      setStatus({ type: 'success', message: 'User invited successfully. An email has been dispatched.' });
+      setFormData({ email: '', firstName: '', lastName: '', middleName: '' });
       setSelectedRoles(ROLES.VIEWER ? [ROLES.VIEWER] : []);
     } catch (err) {
-      setError(err.message || 'An error occurred during invitation.');
+      setStatus({ type: 'error', message: err.message || 'An error occurred during invitation.' });
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="p-6 bg-white shadow-md rounded-lg">
-      <h2 className="text-2xl font-bold mb-4">Admin User Invite</h2>
-      <form onSubmit={handleInvite} className="space-y-4">
-        <div>
-          <label className="block text-sm font-medium text-gray-700">Email</label>
-          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm sm:text-sm" required />
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div><label className="block text-sm font-medium text-gray-700">First Name</label><input type="text" value={firstName} onChange={(e) => setFirstName(e.target.value)} className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm sm:text-sm" /></div>
-          <div><label className="block text-sm font-medium text-gray-700">Last Name</label><input type="text" value={lastName} onChange={(e) => setLastName(e.target.value)} className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm sm:text-sm" /></div>
-          <div><label className="block text-sm font-medium text-gray-700">Middle Name</label><input type="text" value={middleName} onChange={(e) => setMiddleName(e.target.value)} className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm sm:text-sm" /></div>
-        </div>
+    <div className="max-w-4xl mx-auto space-y-6 animate-in fade-in duration-500">
+      {/* Header Section */}
+      <div className="border-b border-zinc-200 pb-6">
+        <h1 className="text-2xl font-bold tracking-tight text-zinc-900 flex items-center gap-3">
+          <UserPlus className="text-indigo-600" size={24} />
+          Invite Team Member
+        </h1>
+        <p className="text-zinc-500 text-sm mt-1">
+          Authorized users will receive a registration link via email to complete their profile setup.
+        </p>
+      </div>
 
-        {/* DYNAMIC MULTI-ROLE SELECTOR */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">Assign Roles</label>
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-2 bg-gray-50 p-3 rounded border">
-            {Object.values(ROLES).map((role) => (
-              <label key={role} className="flex items-center space-x-2 cursor-pointer hover:bg-gray-100 p-1 rounded">
-                <input
-                  type="checkbox"
-                  value={role}
-                  checked={selectedRoles.includes(role)}
-                  onChange={() => handleRoleChange(role)}
-                  className="rounded text-indigo-600 focus:ring-indigo-500 h-4 w-4 border-gray-300"
-                />
-                <span className="text-sm text-gray-700 capitalize">{role.replace(/_/g, ' ')}</span>
-              </label>
-            ))}
+      {status.type && (
+        <Alert 
+          type={status.type} 
+          message={status.message} 
+          onClose={() => setStatus({ type: null, message: '' })} 
+        />
+      )}
+
+      <form onSubmit={handleInvite} className="bg-white border border-zinc-200 rounded-xl shadow-sm overflow-hidden">
+        <div className="p-6 space-y-8">
+          
+          {/* Section 1: Identity */}
+          <div className="space-y-4">
+            <h3 className="text-xs font-bold text-zinc-400 uppercase tracking-widest flex items-center gap-2">
+              <Mail size={14} /> Personal Information
+            </h3>
+            <Input 
+              label="Email Address" 
+              name="email"
+              type="email" 
+              value={formData.email} 
+              onChange={handleInputChange} 
+              placeholder="name@company.com"
+              required 
+            />
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <Input label="First Name" name="firstName" value={formData.firstName} onChange={handleInputChange} />
+              <Input label="Middle Name" name="middleName" value={formData.middleName} onChange={handleInputChange} />
+              <Input label="Last Name" name="lastName" value={formData.lastName} onChange={handleInputChange} />
+            </div>
+          </div>
+
+          {/* Section 2: Roles */}
+          <div className="space-y-4">
+            <h3 className="text-xs font-bold text-zinc-400 uppercase tracking-widest flex items-center gap-2">
+              <Shield size={14} /> Access Permissions
+            </h3>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3 bg-zinc-50/50 p-4 rounded-xl border border-zinc-100">
+              {Object.values(ROLES).map((role) => (
+                <button
+                  key={role}
+                  type="button"
+                  onClick={() => handleRoleChange(role)}
+                  className={`flex items-center justify-between p-3 rounded-lg border text-sm transition-all ${
+                    selectedRoles.includes(role)
+                      ? 'bg-white border-indigo-600 ring-1 ring-indigo-600 shadow-sm'
+                      : 'bg-transparent border-zinc-200 hover:border-zinc-300 text-zinc-600'
+                  }`}
+                >
+                  <span className="capitalize">{role.replace(/_/g, ' ')}</span>
+                  {selectedRoles.includes(role) && <Check size={14} className="text-indigo-600" />}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 
-        <button type="submit" disabled={loading} className={`inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white ${loading ? 'bg-indigo-400 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700'}`}>
-          {loading ? 'Sending Invite...' : 'Invite User'}
-        </button>
+        {/* Footer Actions */}
+        <div className="bg-zinc-50/80 px-6 py-4 border-t border-zinc-200 flex justify-end gap-3">
+          <Button 
+            type="submit" 
+            isLoading={loading} 
+            icon={UserPlus}
+            variant="primary"
+          >
+            {loading ? 'Sending Request...' : 'Dispatch Invitation'}
+          </Button>
+        </div>
       </form>
-      {message && <div className="mt-4 p-3 bg-green-50 text-green-700 rounded border border-green-200">{message}</div>}
-      {error && <div className="mt-4 p-3 bg-red-50 text-red-700 rounded border border-red-200">{error}</div>}
     </div>
   );
 }

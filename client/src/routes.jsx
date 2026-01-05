@@ -15,6 +15,7 @@ import SocketTest from './pages/SocketTest';
 
 import Register from './pages/public/Register';
 import CompleteRegistration from './pages/public/CompleteRegistration';
+import TestDashboard from './pages/private/TestDashboard';
 
 // Guards
 const RequireAuth = () => {
@@ -44,7 +45,7 @@ export const AppRoutes = () => {
           <Route path="audit-logs" element={<AuditLogs />} />
           <Route path="admin-test" element={<AdminTest />} />
           <Route path="socket-test" element={<SocketTest />} />
-          
+          <Route path="test-dashboard" element={<TestDashboard />} />
         </Route>
       </Route>
 

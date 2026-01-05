@@ -1,11 +1,10 @@
-// server/src/services/user.service.js
 import { db } from '../models/index.js';
 import bcrypt from 'bcrypt';
 import crypto from 'crypto';
 import { sendMail } from './mailer.js';
 import { logOperation } from './logger.js';
-// 1. ADD THIS IMPORT
 import { getAllowedRoles } from '../config/permissions.js'; 
+import { Op } from 'sequelize'; 
 
 export const createUser = async ({
   email,
@@ -14,13 +13,11 @@ export const createUser = async ({
   middleName,
   roles, 
 }) => {
-  // 1. Check if user exists
   const existingUser = await db.User.findOne({ where: { email } });
   if (existingUser) {
     throw new Error('User already exists');
   }
 
-  // 2. Validate Roles (Dynamic)
   const validRoleList = getAllowedRoles(); 
   const assignedRoles = Array.isArray(roles) ? roles : [roles];
   
@@ -29,20 +26,17 @@ export const createUser = async ({
     throw new Error(`Invalid roles: ${invalidRoles.join(', ')}`);
   }
 
-  // 3. Generate Token
   const registrationToken = crypto.randomBytes(32).toString('hex');
 
-  // 4. Create User
   const newUser = await db.User.create({
     email,
     firstName,
     lastName,
     middleName,
-    role: assignedRoles, // Store as JSON array
+    role: assignedRoles,
     registrationToken,
   });
 
-  // 5. Log operation
   await logOperation({
     description: 'Admin created a new user invitation.',
     operation: 'CREATE',
@@ -52,7 +46,6 @@ export const createUser = async ({
     initiator: 'admin',
   });
 
-  // 6. Send Registration Email
   const registrationLink = `http://localhost:5173/complete-registration?token=${registrationToken}`;
   await sendMail({
     to: email,
@@ -73,18 +66,14 @@ export const completeRegistration = async (token, {
   contactNumber,
   birthDay,
 }) => {
-  // 1. Find user by token
   const user = await db.User.findOne({ where: { registrationToken: token } });
   if (!user) {
     throw new Error('Invalid registration token');
   }
 
   const beforeState = user.toJSON();
-
-  // 2. Hash Password
   const hashedPassword = await bcrypt.hash(password, 10);
 
-  // 3. Update user
   user.password = hashedPassword;
   user.username = username;
   user.contactNumber = contactNumber;
@@ -94,18 +83,15 @@ export const completeRegistration = async (token, {
 
   await user.save();
 
-  // 4. Log operation
   await logOperation({
     description: 'User completed their registration.',
     operation: 'UPDATE',
     affectedResource: `user:${user.id}`,
     beforeState,
     afterState: user.toJSON(),
-    // IMPROVEMENT: Log the actual email instead of just "user"
     initiator: user.email, 
   });
 
-  // 5. Return user without sensitive data
   const userJson = user.toJSON();
   delete userJson.password;
   delete userJson.registrationToken;
@@ -119,8 +105,33 @@ export const findById = async (id) => {
   });
 };
 
-export const findAll = async () => {
-  return await db.User.findAll({
+export const findAll = async (params = {}) => {
+  const where = {};
+
+  const page = parseInt(params.page) || 1;
+  const limit = parseInt(params.limit) || 10;
+  const offset = (page - 1) * limit;
+
+  // Search and Filters
+  if (params.search) {
+    where[Op.or] = [
+      { firstName: { [Op.like]: `%${params.search}%` } },
+      { lastName: { [Op.like]: `%${params.search}%` } },
+      { email: { [Op.like]: `%${params.search}%` } },
+    ];
+  }
+  if (params.role) where.role = { [Op.like]: `%"${params.role}"%` };
+  if (params.status) where.status = params.status;
+
+  // --- DYNAMIC SORTING ---
+  const sortBy = params.sortBy || 'createdAt';
+  const sortDir = (params.sortDir || 'DESC').toUpperCase();
+
+  return await db.User.findAndCountAll({
+    where,
     attributes: { exclude: ['password'] },
+    order: [[sortBy, sortDir]], // Apply dynamic sort
+    limit,
+    offset,
   });
 };

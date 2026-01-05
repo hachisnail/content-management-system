@@ -1,166 +1,162 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import api from '../api';
 import socket from '../socket';
 
 /**
- * Flexible Real-time Hook
- * * @param {string} resourceName - The resource key (e.g., 'users', 'donations')
- * @param {Object} options - Configuration options
- * @param {string|number} [options.id] - If present, fetches a SINGLE item. If null, fetches a LIST.
- * @param {boolean} [options.prepend] - If true, new items are added to the TOP of the list (useful for logs).
- * @param {boolean} [options.isEnabled] - If false, the hook pauses and does nothing (useful for waiting on auth).
+ * A flexible, real-time hook for fetching and subscribing to resources.
+ * Supports server-side pagination, filtering, and multiple update strategies.
  */
-function useRealtimeResource(resourceName, { id = null, prepend = false, isEnabled = true } = {}) {
-  // 1. Initialize State
-  // Default to null for Singleton, [] for List
+function useRealtimeResource(resourceName, { 
+  id = null, 
+  isEnabled = true, 
+  queryParams = {},
+  filterFn = null,
+  updateStrategy = 'refetch',
+  onUpdate = null,
+} = {}) {
+  
   const [data, setData] = useState(id ? null : []);
+  const [meta, setMeta] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  const queryString = JSON.stringify(queryParams);
+
+  const propsRef = useRef({ filterFn, queryParams, onUpdate, id, updateStrategy });
   useEffect(() => {
-    // Safety Check: If disabled (e.g. no user logged in yet), stop here.
+    propsRef.current = { filterFn, queryParams, onUpdate, id, updateStrategy };
+  });
+
+  const fetchData = useCallback(async (isMountedRef) => {
     if (!isEnabled) {
-      setLoading(false);
+      if (isMountedRef.current) setLoading(false);
       return;
     }
-
-    let isMounted = true;
     setLoading(true);
     setError(null);
-
-    // ============================================================
-    // 2. Initial Snapshot (REST API)
-    // ============================================================
-    const fetchData = async () => {
-      try {
-        // Dynamic Endpoint: Get All vs Get One
-        const endpoint = id ? `/${resourceName}/${id}` : `/${resourceName}`;
-        
-        const response = await api.get(endpoint);
-        
-        if (isMounted) {
-          // Normalize data (handle wrappers like { data: ... } if your API uses them)
-          const payload = response.data || response;
-
-          if (id) {
-            // SINGLETON MODE
-            setData(payload); 
+    try {
+      const endpoint = id ? `/${resourceName}/${id}` : `/${resourceName}`;
+      const response = await api.get(endpoint, { params: queryParams });
+      
+      if (isMountedRef.current) {
+        const payload = response;
+        if (id) {
+          setData(payload); 
+          setMeta(null);
+        } else {
+          if (payload && payload.data && Array.isArray(payload.data)) {
+             setData(payload.data);
+             setMeta(payload.meta || null);
+          } else if (payload && payload.rows) {
+             setData(payload.rows);
+             setMeta(prev => ({ ...prev, totalItems: payload.count }));
+          } else if (Array.isArray(payload)) {
+             setData(payload);
+             setMeta(null);
           } else {
-            // LIST MODE
-            if (Array.isArray(payload)) {
-              setData(payload);
-            } else {
-              console.warn(`[useRealtimeResource] Expected array for ${resourceName}, got:`, payload);
-              setData([]); 
-            }
+             setData([]); 
+             setMeta(null);
           }
         }
-      } catch (err) {
-        if (isMounted) {
-          console.error(`Error fetching ${resourceName}:`, err);
-          setError(err.message || 'Failed to load data');
-        }
-      } finally {
-        if (isMounted) {
-          setLoading(false);
-        }
       }
-    };
-
-    fetchData();
-
-    // ============================================================
-    // 3. Real-time Subscription
-    // ============================================================
-    const handleSubscribe = () => {
-      socket.emit('subscribe_resource', resourceName);
-    };
-
-    if (socket.connected) {
-      handleSubscribe();
-    } else {
-      socket.on('connect', handleSubscribe);
+    } catch (err) {
+      if (isMountedRef.current) setError(err.message || 'Failed to load data');
+    } finally {
+      if (isMountedRef.current) setLoading(false);
     }
+  }, [resourceName, id, isEnabled, queryString]);
 
-    // ============================================================
-    // 4. Event Handlers
-    // ============================================================
+  const handleCreated = useCallback((newItem) => {
+    const { filterFn, queryParams, updateStrategy } = propsRef.current;
+    if (filterFn && !filterFn(newItem)) return;
+
+    if (updateStrategy === 'manual' && (queryParams.page === 1 || !queryParams.page)) {
+      setData(prev => [newItem, ...prev.filter(item => item.id !== newItem.id)]);
+      setMeta(prev => prev ? { ...prev, totalItems: prev.totalItems + 1 } : prev);
+    } else {
+      fetchData({ current: true });
+    }
+  }, [fetchData]);
+
+  const handleUpdated = useCallback((updatedItem) => {
+    const { filterFn, onUpdate, updateStrategy, id } = propsRef.current;
     
-    // A. Handle Create
-    const handleCreated = (newItem) => {
-      // In Singleton mode, we usually ignore 'created' events unless logic dictates otherwise
-      if (id) return; 
+    if (updateStrategy === 'refetch') {
+      fetchData({ current: true });
+      return;
+    }
+    
+    // Manual strategy
+    const passesFilter = !filterFn || filterFn(updatedItem);
 
-      setData((prevData) => {
-        if (!Array.isArray(prevData)) return prevData;
-        // Avoid duplicates
-        if (prevData.find(item => item.id === newItem.id)) return prevData;
-        
-        // Prepend (Newest Top) or Append (Oldest Top)
-        return prepend ? [newItem, ...prevData] : [...prevData, newItem];
+    if (id) { // Singleton mode
+      if (String(id) === String(updatedItem.id)) {
+        setData(prev => ({ ...prev, ...updatedItem }));
+      }
+    } else { // List mode
+      let shouldRefetch = false;
+      setData(prevData => {
+        const itemIndex = prevData.findIndex(item => item.id === updatedItem.id);
+
+        if (itemIndex !== -1 && passesFilter) {
+          const newData = [...prevData];
+          newData[itemIndex] = { ...newData[itemIndex], ...updatedItem };
+          return newData;
+        } 
+        else if (itemIndex !== -1 && !passesFilter) {
+          setMeta(prev => prev ? { ...prev, totalItems: Math.max(0, prev.totalItems - 1) } : prev);
+          return prevData.filter(item => item.id !== updatedItem.id);
+        }
+        else if (itemIndex === -1 && passesFilter) {
+          shouldRefetch = true;
+          return prevData;
+        }
+        return prevData;
       });
-    };
 
-    // B. Handle Update
-    const handleUpdated = (updatedItem) => {
-      if (id) {
-        // Singleton: Update only if IDs match
-        setData((prevItem) => {
-          if (!prevItem || String(prevItem.id) !== String(updatedItem.id)) return prevItem;
-          return { ...prevItem, ...updatedItem };
-        });
-      } else {
-        // List: Find and replace
-        setData((prevData) => {
-          if (!Array.isArray(prevData)) return prevData;
-          return prevData.map((item) =>
-            item.id === updatedItem.id ? { ...item, ...updatedItem } : item
-          );
-        });
+      if (shouldRefetch) {
+        fetchData({ current: true });
       }
-    };
+    }
+    onUpdate?.(updatedItem);
+  }, [fetchData]);
 
-    // C. Handle Delete
-    const handleDeleted = (deletedItemOrId) => {
-      // Some APIs send the whole object, some just the ID
-      const idToDelete = deletedItemOrId.id || deletedItemOrId;
+  const handleDeleted = useCallback((deletedItemOrId) => {
+    const { updateStrategy } = propsRef.current;
+    const idToDelete = deletedItemOrId.id || deletedItemOrId;
+    
+    if (updateStrategy === 'manual') {
+      setData(prev => prev.filter(item => item.id !== idToDelete));
+      setMeta(prev => prev ? { ...prev, totalItems: Math.max(0, prev.totalItems - 1) } : prev);
+    } else {
+      fetchData({ current: true });
+    }
+  }, [fetchData]);
 
-      if (id) {
-        // Singleton: If our item is deleted, clear it
-        setData((prevItem) => {
-          if (prevItem && String(prevItem.id) === String(idToDelete)) {
-            return null; 
-          }
-          return prevItem;
-        });
-      } else {
-        // List: Filter it out
-        setData((prevData) => {
-          if (!Array.isArray(prevData)) return prevData;
-          return prevData.filter((item) => item.id !== idToDelete);
-        });
-      }
-    };
+  useEffect(() => {
+    const isMounted = { current: true };
+    fetchData(isMounted);
 
-    // Attach Listeners
+    const handleSubscribe = () => socket.emit('subscribe_resource', resourceName);
+
+    socket.on('connect', handleSubscribe);
+    if (socket.connected) handleSubscribe();
+    
     socket.on(`${resourceName}_created`, handleCreated);
     socket.on(`${resourceName}_updated`, handleUpdated);
     socket.on(`${resourceName}_deleted`, handleDeleted);
 
-    // 5. Cleanup
     return () => {
-      isMounted = false;
-      
+      isMounted.current = false;
       socket.emit('unsubscribe_resource', resourceName);
-      
+      socket.off('connect', handleSubscribe);
       socket.off(`${resourceName}_created`, handleCreated);
       socket.off(`${resourceName}_updated`, handleUpdated);
       socket.off(`${resourceName}_deleted`, handleDeleted);
-      socket.off('connect', handleSubscribe); 
     };
-  }, [resourceName, id, prepend, isEnabled]); 
+  }, [resourceName, fetchData, handleCreated, handleUpdated, handleDeleted]);
 
-  return { data, loading, error };
+  return { data, meta, loading, error };
 }
 
-export default useRealtimeResource; 
+export default useRealtimeResource;

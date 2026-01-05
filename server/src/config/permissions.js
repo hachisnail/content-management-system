@@ -1,5 +1,3 @@
-// server/src/config/permissions.js
-
 // 1. ROLES: The list of available roles
 export const ROLES = {
   SUPER_ADMIN: 'super_admin',
@@ -29,7 +27,7 @@ export const PERMISSIONS = {
 
 // 3. ROLE_DEFINITIONS: Who can do what
 export const ROLE_DEFINITIONS = {
-  [ROLES.SUPER_ADMIN]: Object.values(PERMISSIONS), // All Permissions
+  [ROLES.SUPER_ADMIN]: Object.values(PERMISSIONS), 
   
   [ROLES.ADMIN]: [
     PERMISSIONS.VIEW_DASHBOARD,

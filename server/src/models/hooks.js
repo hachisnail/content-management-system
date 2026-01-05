@@ -11,7 +11,7 @@ const safeEmit = (roomName, eventName, payload) => {
       // Emit strictly to the room matching the resource name
       io.to(roomName).emit(eventName, data);
       
-      // console.log(`[Socket] Emitted ${eventName} to room ${roomName}`);
+      console.log(`[Socket] Emitted ${eventName} to room ${roomName}`);
     }
   } catch (err) {
     console.warn(`[Socket] Failed to emit ${eventName}:`, err.message);
@@ -28,7 +28,9 @@ const safeEmit = (roomName, eventName, payload) => {
  */
 export const notifyNewResource = (resourceName) => (instance) => {
   // Explicitly pass resourceName as the room
+  console.log(`[Hook] Notifying new ${resourceName} creation.`);
   safeEmit(resourceName, `${resourceName}_created`, instance);
+
 };
 
 /**
@@ -37,6 +39,7 @@ export const notifyNewResource = (resourceName) => (instance) => {
  */
 export const notifyMutableResource = (resourceName) => (instance, options) => {
   // 1. Handle Soft Deletes
+  console.log(`[Hook] Notifying mutable ${resourceName} change.`);
   if (instance.deletedAt && instance.changed('deletedAt')) {
       safeEmit(resourceName, `${resourceName}_deleted`, instance);
       return;
@@ -47,6 +50,7 @@ export const notifyMutableResource = (resourceName) => (instance, options) => {
   const isNew = options.isNewRecord === undefined ? instance._options?.isNewRecord : options.isNewRecord;
   
   if (isNew) {
+    console.log(`[Hook] Detected new ${resourceName} creation via mutable hook.`);
       safeEmit(resourceName, `${resourceName}_created`, instance);
       return;
   }
