@@ -105,33 +105,17 @@ export const findById = async (id) => {
   });
 };
 
-export const findAll = async (params = {}) => {
-  const where = {};
+import { buildQueryOptions } from '../utils/queryBuilder.js';
 
-  const page = parseInt(params.page) || 1;
-  const limit = parseInt(params.limit) || 10;
-  const offset = (page - 1) * limit;
-
-  // Search and Filters
-  if (params.search) {
-    where[Op.or] = [
-      { firstName: { [Op.like]: `%${params.search}%` } },
-      { lastName: { [Op.like]: `%${params.search}%` } },
-      { email: { [Op.like]: `%${params.search}%` } },
-    ];
-  }
-  if (params.role) where.role = { [Op.like]: `%"${params.role}"%` };
-  if (params.status) where.status = params.status;
-
-  // --- DYNAMIC SORTING ---
-  const sortBy = params.sortBy || 'createdAt';
-  const sortDir = (params.sortDir || 'DESC').toUpperCase();
+export const findAll = async (queryParams = {}) => {
+  // Define which fields the generic 'search' parameter should apply to
+  const searchableFields = ['firstName', 'lastName', 'email', 'username'];
+  
+  // Build the full query options object from the request query params
+  const options = buildQueryOptions(queryParams, searchableFields);
 
   return await db.User.findAndCountAll({
-    where,
-    attributes: { exclude: ['password'] },
-    order: [[sortBy, sortDir]], // Apply dynamic sort
-    limit,
-    offset,
+    ...options,
+    attributes: { exclude: ['password', 'registrationToken'] },
   });
 };

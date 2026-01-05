@@ -1,42 +1,19 @@
 // server/src/services/auditLog.service.js
 import { db } from '../models/index.js';
-import { Op } from 'sequelize'; // Required for search operators
+import { buildQueryOptions } from '../utils/queryBuilder.js';
 
-export const findAll = async (params = {}) => {
-  const where = {};
-
-  const page = parseInt(params.page) || 1;
-  const limit = parseInt(params.limit) || 10;
-  const offset = (page - 1) * limit;
-
-  // Search Logic
-  if (params.search) {
-    where[Op.or] = [
-      { description: { [Op.like]: `%${params.search}%` } },
-      { affectedResource: { [Op.like]: `%${params.search}%` } },
-      { initiator: { [Op.like]: `%${params.search}%` } },
-      { operation: { [Op.like]: `%${params.search}%` } },
-    ];
-  }
-
-  if (params.operation) where.operation = params.operation;
-
-  // Sort Logic
-  const sortBy = params.sortBy || 'createdAt';
-  const sortDir = (params.sortDir || 'DESC').toUpperCase();
+export const findAll = async (queryParams = {}) => {
+  const searchableFields = ['description', 'affectedResource', 'initiator', 'operation'];
+  const options = buildQueryOptions(queryParams, searchableFields);
 
   const { count, rows } = await db.AuditLog.findAndCountAll({
-    where,
-    // --- JOIN USER TABLE ---
-    // This allows us to see who the initiator is if "initiator" is an ID
+    ...options,
     include: [{
       model: db.User,
-      as: 'user', // Ensure this matches your model association alias
+      as: 'user', 
       attributes: ['email', 'firstName', 'lastName']
     }],
-    order: [[sortBy, sortDir]],
-    limit,
-    offset, 
+    distinct: true, 
   });
 
   return { count, rows };
