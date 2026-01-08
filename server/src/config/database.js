@@ -5,12 +5,17 @@ export const dbConfig = {
   username: config.db.user,
   password: config.db.pass,
   host: config.db.host,
-  dialect: 'mariadb',
+  dialect: 'mysql',
   logging: false,
   pool: {
-    max: 5,
+    // --- FIX: Increase connection limit ---
+    max: 20, // Changed from 5 to 20
     min: 0,
-    acquire: 30000,
+    acquire: 60000, // Increase timeout to 60s
     idle: 10000,
+  },
+  define: {
+    charset: 'utf8mb4',
+    collate: 'utf8mb4_general_ci',
   },
 };

@@ -12,6 +12,14 @@ import AuditLogs from './pages/private/AuditLogs';
 import AdminTest from './pages/private/AdminTest';
 import LoginTest from './pages/LoginTest';
 import SocketTest from './pages/SocketTest';
+import Profile from './pages/private/Profile';
+
+
+import UserDirectory from './pages/private/users-dashboard/index';
+import InviteUser from './pages/private/users-dashboard/subpages/InviteUser';
+import UserProfile from './pages/private/users-dashboard/subpages/UserProfile';
+
+// import UserManagement from "./pages/private/users-dashboard";
 
 import Register from './pages/public/Register';
 import CompleteRegistration from './pages/public/CompleteRegistration';
@@ -46,6 +54,11 @@ export const AppRoutes = () => {
           <Route path="admin-test" element={<AdminTest />} />
           <Route path="socket-test" element={<SocketTest />} />
           <Route path="test-dashboard" element={<TestDashboard />} />
+          <Route path="profile" element={<Profile />} />
+
+          <Route path="users" element={<UserDirectory />} />
+          <Route path="users/invite" element={<InviteUser />} />
+          <Route path="users/:id" element={<UserProfile />} />
         </Route>
       </Route>
 

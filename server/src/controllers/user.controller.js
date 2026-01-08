@@ -1,28 +1,28 @@
 import * as UserService from '../services/user.service.js';
 
-export const createUser = async (req, res, next) => {
+export const updateUser = async (req, res, next) => {
   try {
-    const { email, firstName, lastName, middleName, roles } = req.body;
+    const { id } = req.params;
     
-    console.log('Creating user:', { email, roles });
+    // Security check: Ensure users can only update themselves 
+    // unless they have a specific permission (like MANAGE_USERS)
+    // For now, we allow self-update or admin update
+    if (req.user.id !== parseInt(id) && !req.user.role.includes('admin') && !req.user.role.includes('super_admin')) {
+        return res.status(403).json({ success: false, message: "Forbidden: You can only update your own profile." });
+    }
 
-    const user = await UserService.createUser({
-      email,
-      firstName,
-      lastName,
-      middleName,
-      roles, // Pass array to service
-    });
+    const updatedUser = await UserService.updateUser(id, req.body, req.user.email);
 
-    res.status(201).json({
+    res.json({
       success: true,
-      message: 'Invitation email sent successfully',
-      user,
+      message: 'Profile updated successfully',
+      user: updatedUser
     });
   } catch (error) {
     next(error);
   }
 };
+
 
 export const completeRegistration = async (req, res, next) => {
   try {
@@ -45,6 +45,33 @@ export const completeRegistration = async (req, res, next) => {
     next(error);
   }
 };
+
+export const createUser = async (req, res, next) => {
+  try {
+    const { email, firstName, lastName, middleName, roles } = req.body;
+    
+    // 1. GET THE ADMIN EMAIL
+    const initiatorEmail = req.user.email; 
+
+    const user = await UserService.createUser({
+      email,
+      firstName,
+      lastName,
+      middleName,
+      roles,
+      initiatorEmail // 2. PASS IT HERE
+    });
+
+    res.status(201).json({
+      success: true,
+      message: 'Invitation email sent successfully',
+      user,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 
 export const getAllUsers = async (req, res, next) => {
   try {
@@ -99,6 +126,16 @@ export const getUserById = async (req, res, next) => {
     }
 
     res.json(user);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const revokeUser = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    await UserService.deleteUser(id, req.user.email);
+    res.json({ success: true, message: 'Invitation revoked.' });
   } catch (error) {
     next(error);
   }

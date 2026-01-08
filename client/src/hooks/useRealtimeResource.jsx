@@ -2,10 +2,67 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import api from '../api';
 import socket from '../socket';
 
-/**
- * A flexible, real-time hook for fetching and subscribing to resources.
- * Supports server-side pagination, filtering, and multiple update strategies.
- */
+// --- GLOBAL SUBSCRIPTION MANAGER ---
+// Prevents connection flickering/loss during React re-renders (Strict Mode)
+const subscriptionManager = {
+  counts: new Map(),
+  timers: new Map(),
+
+  subscribe(resource) {
+    // Cancel pending unsubscribe
+    if (this.timers.has(resource)) {
+      clearTimeout(this.timers.get(resource));
+      this.timers.delete(resource);
+    }
+
+    const current = this.counts.get(resource) || 0;
+    this.counts.set(resource, current + 1);
+
+    // Only emit JOIN if this is the first listener
+    if (current === 0) {
+      if (socket.connected) {
+        console.log(`[Realtime] Subscribing to: ${resource}`);
+        socket.emit('subscribe_resource', resource);
+      }
+    }
+  },
+
+  unsubscribe(resource) {
+    const current = this.counts.get(resource) || 0;
+    if (current === 0) return;
+
+    const next = current - 1;
+    this.counts.set(resource, next);
+
+    // Debounce the LEAVE command (500ms grace period)
+    if (next === 0) {
+      const timeoutId = setTimeout(() => {
+        if (this.counts.get(resource) === 0) {
+          console.log(`[Realtime] Unsubscribing from: ${resource}`);
+          if (socket.connected) {
+            socket.emit('unsubscribe_resource', resource);
+          }
+        }
+        this.timers.delete(resource);
+      }, 500); 
+      
+      this.timers.set(resource, timeoutId);
+    }
+  },
+  
+  reconnectAll() {
+    this.counts.forEach((count, resource) => {
+      if (count > 0) {
+        console.log(`[Realtime] 🔄 Re-subscribing: ${resource}`);
+        socket.emit('subscribe_resource', resource);
+      }
+    });
+  }
+};
+
+// Ensure we re-subscribe if the socket connection drops and restores
+socket.on('connect', () => subscriptionManager.reconnectAll());
+
 function useRealtimeResource(resourceName, { 
   id = null, 
   isEnabled = true, 
@@ -21,33 +78,36 @@ function useRealtimeResource(resourceName, {
   const [error, setError] = useState(null);
 
   const queryString = JSON.stringify(queryParams);
-
   const propsRef = useRef({ filterFn, queryParams, onUpdate, id, updateStrategy });
+  
   useEffect(() => {
     propsRef.current = { filterFn, queryParams, onUpdate, id, updateStrategy };
   });
 
+  // --- DATA FETCHING ---
   const fetchData = useCallback(async (isMountedRef) => {
     if (!isEnabled) {
-      if (isMountedRef.current) setLoading(false);
+      if (isMountedRef?.current) setLoading(false);
       return;
     }
+    
     setLoading(true);
     setError(null);
+    
     try {
       const endpoint = id ? `/${resourceName}/${id}` : `/${resourceName}`;
       const response = await api.get(endpoint, { params: queryParams });
       
-      if (isMountedRef.current) {
+      if (isMountedRef?.current) {
         const payload = response;
         if (id) {
           setData(payload); 
           setMeta(null);
         } else {
-          if (payload && payload.data && Array.isArray(payload.data)) {
+          if (payload?.data && Array.isArray(payload.data)) {
              setData(payload.data);
              setMeta(payload.meta || null);
-          } else if (payload && payload.rows) {
+          } else if (payload?.rows) {
              setData(payload.rows);
              setMeta(prev => ({ ...prev, totalItems: payload.count }));
           } else if (Array.isArray(payload)) {
@@ -60,20 +120,32 @@ function useRealtimeResource(resourceName, {
         }
       }
     } catch (err) {
-      if (isMountedRef.current) setError(err.message || 'Failed to load data');
+      if (isMountedRef?.current) setError(err.message || 'Failed to load data');
     } finally {
-      if (isMountedRef.current) setLoading(false);
+      if (isMountedRef?.current) setLoading(false);
     }
   }, [resourceName, id, isEnabled, queryString]);
 
+  // --- SOCKET HANDLERS ---
+
   const handleCreated = useCallback((newItem) => {
     const { filterFn, queryParams, updateStrategy } = propsRef.current;
+    
+    // 1. Check if item belongs in this list
     if (filterFn && !filterFn(newItem)) return;
 
+    // 2. Handle List Update
     if (updateStrategy === 'manual' && (queryParams.page === 1 || !queryParams.page)) {
-      setData(prev => [newItem, ...prev.filter(item => item.id !== newItem.id)]);
-      setMeta(prev => prev ? { ...prev, totalItems: prev.totalItems + 1 } : prev);
+      setData(prev => {
+         const list = Array.isArray(prev) ? prev : [];
+         // Prevent duplicates
+         if (list.some(i => String(i.id) === String(newItem.id))) return list;
+         // Prepend new item
+         return [newItem, ...list];
+      });
+      setMeta(prev => prev ? { ...prev, totalItems: (prev.totalItems || 0) + 1 } : prev);
     } else {
+      // For 'refetch' strategy, just reload from server
       fetchData({ current: true });
     }
   }, [fetchData]);
@@ -86,38 +158,43 @@ function useRealtimeResource(resourceName, {
       return;
     }
     
-    // Manual strategy
-    const passesFilter = !filterFn || filterFn(updatedItem);
-
-    if (id) { // Singleton mode
+    // Singleton Mode
+    if (id) { 
       if (String(id) === String(updatedItem.id)) {
         setData(prev => ({ ...prev, ...updatedItem }));
       }
-    } else { // List mode
-      let shouldRefetch = false;
-      setData(prevData => {
-        const itemIndex = prevData.findIndex(item => item.id === updatedItem.id);
-
-        if (itemIndex !== -1 && passesFilter) {
-          const newData = [...prevData];
-          newData[itemIndex] = { ...newData[itemIndex], ...updatedItem };
-          return newData;
-        } 
-        else if (itemIndex !== -1 && !passesFilter) {
-          setMeta(prev => prev ? { ...prev, totalItems: Math.max(0, prev.totalItems - 1) } : prev);
-          return prevData.filter(item => item.id !== updatedItem.id);
-        }
-        else if (itemIndex === -1 && passesFilter) {
-          shouldRefetch = true;
-          return prevData;
-        }
-        return prevData;
-      });
-
-      if (shouldRefetch) {
-        fetchData({ current: true });
-      }
+      return;
     }
+
+    // List Mode
+    setData(prevData => {
+      const list = Array.isArray(prevData) ? prevData : [];
+      const itemIndex = list.findIndex(item => String(item.id) === String(updatedItem.id));
+
+      // 1. Item NOT found locally
+      if (itemIndex === -1) {
+        // If matches filter (e.g. status changed from 'disabled' to 'active')
+        if (!filterFn || filterFn(updatedItem)) {
+           fetchData({ current: true }); // Refetch to place it correctly sorted
+        }
+        return list;
+      }
+
+      // 2. Item FOUND locally -> Merge
+      const mergedItem = { ...list[itemIndex], ...updatedItem };
+      const passesFilter = !filterFn || filterFn(mergedItem);
+
+      if (passesFilter) {
+        const newData = [...list];
+        newData[itemIndex] = mergedItem;
+        return newData;
+      } else {
+        // Item no longer matches filter (e.g. status changed to 'archived')
+        setMeta(prev => prev ? { ...prev, totalItems: Math.max(0, prev.totalItems - 1) } : prev);
+        return list.filter(item => String(item.id) !== String(updatedItem.id));
+      }
+    });
+
     onUpdate?.(updatedItem);
   }, [fetchData]);
 
@@ -126,35 +203,43 @@ function useRealtimeResource(resourceName, {
     const idToDelete = deletedItemOrId.id || deletedItemOrId;
     
     if (updateStrategy === 'manual') {
-      setData(prev => prev.filter(item => item.id !== idToDelete));
+      setData(prev => {
+        const list = Array.isArray(prev) ? prev : [];
+        return list.filter(item => String(item.id) !== String(idToDelete));
+      });
       setMeta(prev => prev ? { ...prev, totalItems: Math.max(0, prev.totalItems - 1) } : prev);
     } else {
       fetchData({ current: true });
     }
   }, [fetchData]);
 
+  // --- LIFECYCLE ---
   useEffect(() => {
     const isMounted = { current: true };
+    
     fetchData(isMounted);
 
-    const handleSubscribe = () => socket.emit('subscribe_resource', resourceName);
+    if (isEnabled) {
+      subscriptionManager.subscribe(resourceName);
+    }
 
-    socket.on('connect', handleSubscribe);
-    if (socket.connected) handleSubscribe();
-    
+    // Bind Listeners
     socket.on(`${resourceName}_created`, handleCreated);
     socket.on(`${resourceName}_updated`, handleUpdated);
     socket.on(`${resourceName}_deleted`, handleDeleted);
 
     return () => {
       isMounted.current = false;
-      socket.emit('unsubscribe_resource', resourceName);
-      socket.off('connect', handleSubscribe);
+      
+      if (isEnabled) {
+        subscriptionManager.unsubscribe(resourceName);
+      }
+      
       socket.off(`${resourceName}_created`, handleCreated);
       socket.off(`${resourceName}_updated`, handleUpdated);
       socket.off(`${resourceName}_deleted`, handleDeleted);
     };
-  }, [resourceName, fetchData, handleCreated, handleUpdated, handleDeleted]);
+  }, [resourceName, fetchData, handleCreated, handleUpdated, handleDeleted, isEnabled]);
 
   return { data, meta, loading, error };
 }

@@ -110,19 +110,21 @@ function AdminTest() {
             </h3>
             <div className="grid grid-cols-2 md:grid-cols-3 gap-3 bg-zinc-50/50 p-4 rounded-xl border border-zinc-100">
               {Object.values(ROLES).map((role) => (
-                <button
-                  key={role}
-                  type="button"
-                  onClick={() => handleRoleChange(role)}
-                  className={`flex items-center justify-between p-3 rounded-lg border text-sm transition-all ${
-                    selectedRoles.includes(role)
-                      ? 'bg-white border-indigo-600 ring-1 ring-indigo-600 shadow-sm'
-                      : 'bg-transparent border-zinc-200 hover:border-zinc-300 text-zinc-600'
-                  }`}
-                >
-                  <span className="capitalize">{role.replace(/_/g, ' ')}</span>
-                  {selectedRoles.includes(role) && <Check size={14} className="text-indigo-600" />}
-                </button>
+               <button
+                key={role}
+                type="button"
+                onClick={() => handleRoleChange(role)}
+                className={`flex items-center justify-between p-3 rounded-lg border text-sm transition-all duration-200 group active:scale-[0.98] ${
+                  selectedRoles.includes(role)
+                    ? 'bg-indigo-50 border-indigo-600 ring-1 ring-indigo-600 shadow-md shadow-indigo-100'
+                    : 'bg-white border-zinc-200 hover:border-zinc-400 hover:bg-zinc-50 text-zinc-600'
+                }`}
+              >
+                <span className="capitalize">{role.replace(/_/g, ' ')}</span>
+                <div className={`transition-all duration-300 ${selectedRoles.includes(role) ? 'scale-100 opacity-100' : 'scale-50 opacity-0'}`}>
+                  <Check size={14} className="text-indigo-600" />
+                </div>
+              </button>
               ))}
             </div>
           </div>

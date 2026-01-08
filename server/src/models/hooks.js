@@ -1,16 +1,11 @@
-// server/src/models/hooks.js
 import { getIO } from '../socket-store.js';
 
-// Changed signature: We pass roomName explicitly to avoid 'audit_logs' split errors
 const safeEmit = (roomName, eventName, payload) => {
   try {
     const io = getIO();
     if (io) {
       const data = payload && typeof payload.toJSON === 'function' ? payload.toJSON() : payload;
-      
-      // Emit strictly to the room matching the resource name
       io.to(roomName).emit(eventName, data);
-      
       console.log(`[Socket] Emitted ${eventName} to room ${roomName}`);
     }
   } catch (err) {
@@ -18,43 +13,60 @@ const safeEmit = (roomName, eventName, payload) => {
   }
 };
 
-// ==========================================
-// SMART HANDLERS
-// ==========================================
-
-/**
- * Handle Append-Only Resources (Audit Logs, Donations)
- * Usage: Attach to afterCreate only.
- */
-export const notifyNewResource = (resourceName) => (instance) => {
-  // Explicitly pass resourceName as the room
-  console.log(`[Hook] Notifying new ${resourceName} creation.`);
-  safeEmit(resourceName, `${resourceName}_created`, instance);
-
+// ... (keep triggerSmartUpdate as is) ...
+export const triggerSmartUpdate = (resourceName, payload) => {
+  const data = (typeof payload === 'string' || typeof payload === 'number') 
+    ? { id: payload } 
+    : payload;
+  console.log(`[Hook] Manual trigger for ${resourceName} update.`);
+  safeEmit(resourceName, `${resourceName}_updated`, data);
 };
 
 /**
- * Handle Mutable Resources (Users)
- * Usage: Attach to afterSave.
+ * Helper to populate associations before emitting
  */
-export const notifyMutableResource = (resourceName) => (instance, options) => {
-  // 1. Handle Soft Deletes
+const reloadWithAssociations = async (instance, include) => {
+  if (!include || !instance.reload) return instance;
+  try {
+    return await instance.reload({ include });
+  } catch (error) {
+    console.error('[Hook] Failed to reload associations:', error.message);
+    return instance; // Fallback to raw instance on error
+  }
+};
+
+// 1. CREATE HOOK (Supports Eager Loading)
+export const notifyNewResource = (resourceName, eagerLoad = null) => async (instance) => {
+  console.log(`[Hook] Notifying new ${resourceName} creation.`);
+  
+  // FIX: Load associations (Avatar, User) before sending
+  const payload = await reloadWithAssociations(instance, eagerLoad);
+  
+  safeEmit(resourceName, `${resourceName}_created`, payload);
+};
+
+// 2. MUTABLE HOOK (Update/Soft Delete)
+export const notifyMutableResource = (resourceName, eagerLoad = null) => async (instance, options) => {
   console.log(`[Hook] Notifying mutable ${resourceName} change.`);
+
+  // Handle Soft Delete
   if (instance.deletedAt && instance.changed('deletedAt')) {
       safeEmit(resourceName, `${resourceName}_deleted`, instance);
       return;
   }
 
-  // 2. Handle Creation (New Record)
-  // This ensures the client "appends" the new user instead of trying to "update" a missing one
+  // Handle Create vs Update
   const isNew = options.isNewRecord === undefined ? instance._options?.isNewRecord : options.isNewRecord;
-  
-  if (isNew) {
-    console.log(`[Hook] Detected new ${resourceName} creation via mutable hook.`);
-      safeEmit(resourceName, `${resourceName}_created`, instance);
-      return;
-  }
+  const eventName = isNew ? `${resourceName}_created` : `${resourceName}_updated`;
 
-  // 3. Handle Updates
-  safeEmit(resourceName, `${resourceName}_updated`, instance);
+  // FIX: Load associations before sending
+  const payload = await reloadWithAssociations(instance, eagerLoad);
+
+  safeEmit(resourceName, eventName, payload);
+};
+
+// 3. HARD DELETE HOOK
+export const notifyDeletedResource = (resourceName) => (instance) => {
+  console.log(`[Hook] Notifying ${resourceName} deletion.`);
+  safeEmit(resourceName, `${resourceName}_deleted`, instance);
 };

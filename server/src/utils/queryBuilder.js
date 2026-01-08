@@ -26,14 +26,18 @@ export const buildWhereClause = (query, searchableFields = []) => {
   // Handle generic 'search' parameter across specified fields
   if (search && searchableFields.length > 0) {
     where[Op.or] = searchableFields.map(field => ({
-      [field]: { [Op.iLike]: `%${search}%` }
+      [field]: { [Op.like]: `%${search}%` }
     }));
   }
 
   // Handle all other query params as specific filters
-  for (const key in filters) {
-    if (Object.prototype.hasOwnProperty.call(filters, key)) {
-      const value = filters[key];
+  for (const rawKey in filters) {
+    if (Object.prototype.hasOwnProperty.call(filters, rawKey)) {
+      const value = filters[rawKey];
+      
+      // --- FIX: Strip '[]' from keys (e.g., 'status[]' -> 'status') ---
+      const key = rawKey.endsWith('[]') ? rawKey.slice(0, -2) : rawKey;
+
       // Special handling for 'role' to check within a JSON array
       if (key === 'role' && value) {
         where.role = { [Op.contains]: [value] };
@@ -60,15 +64,11 @@ export const getOrder = (query) => {
     return [['createdAt', 'DESC']];
   }
 
-  // Here you could add validation against a list of allowed sortBy fields
-  // for added security, but for now we trust the internal usage.
   return [[sortBy, sortDir]];
 };
 
 /**
  * Constructs a full options object for Sequelize's findAndCountAll method.
- * This is the main function to be used in services.
- * 
  * @param {object} query - The query object from the request (req.query).
  * @param {string[]} [searchableFields=[]] - Fields to be used for the generic 'search' param.
  * @returns {{where: object, limit: number, offset: number, order: Array}}

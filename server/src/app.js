@@ -1,6 +1,7 @@
 import express from 'express';
 import passport from 'passport';
-import cors from 'cors'; // Import the middleware
+import cors from 'cors'; 
+import helmet from 'helmet'; // NEW IMPORT
 
 // Import Shared Config
 import { corsOptions } from './config/cors.js'; 
@@ -13,7 +14,14 @@ import { updateUserActivity } from './middlewares/activity.middleware.js';
 const app = express();
 
 // --- Middleware ---
-// 1. Apply Centralized CORS Config
+
+// 1. SECURITY: Apply Helmet for HTTP Headers
+// This sets X-Content-Type-Options, X-Frame-Options, etc.
+app.use(helmet({
+  crossOriginResourcePolicy: false 
+}));
+
+// 2. Apply Centralized CORS Config
 app.use(cors(corsOptions)); 
 
 app.use(express.json());

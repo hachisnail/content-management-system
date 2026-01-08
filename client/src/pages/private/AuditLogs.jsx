@@ -7,7 +7,8 @@ import {
   Button, 
   Modal, 
   Alert, 
-  Dropdown 
+  Dropdown,
+  Avatar
 } from '../../components/UI';
 import { Eye, Clock, Activity, Filter, Check, ArrowRight } from 'lucide-react';
 
@@ -97,31 +98,31 @@ function AuditLogs() {
 
   // --- 3. UI CONFIGURATION ---
   const columns = [
-    { 
-      header: "Event Origin", 
-      accessor: "initiator",
-      sortable: true,
-      render: (log) => {
-        const displayEmail = log.user?.email || log.initiator;
-        const fullName = log.user ? `${log.user.firstName} ${log.user.lastName}` : 'System Event';
-        
-        return (
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg bg-zinc-50 border border-zinc-200 flex items-center justify-center font-bold text-sm text-zinc-500 shadow-sm shrink-0">
-              {displayEmail?.charAt(0).toUpperCase() || "?"}
-            </div>
-            <div className="min-w-0">
-              <div className="font-semibold text-zinc-900 leading-tight truncate" title={fullName}>
-                {fullName}
-              </div>
-              <div className="text-[10px] text-zinc-400 font-mono truncate" title={displayEmail}>
-                {displayEmail}
-              </div>
-            </div>
+{ 
+  header: "Event Origin", 
+  accessor: "initiator",
+  sortable: true,
+  render: (log) => {
+    const displayEmail = log.user?.email || log.initiator;
+    const fullName = log.user ? `${log.user.firstName} ${log.user.lastName}` : 'System Event';
+    
+    return (
+      <div className="flex items-center gap-3">
+        {/* NEW AVATAR - Pass log.user object */}
+        <Avatar user={log.user} size="md" />
+
+        <div className="min-w-0">
+          <div className="font-semibold text-zinc-900 leading-tight truncate" title={fullName}>
+            {fullName}
           </div>
-        );
-      }
-    },
+          <div className="text-[10px] text-zinc-400 font-mono truncate" title={displayEmail}>
+            {displayEmail}
+          </div>
+        </div>
+      </div>
+    );
+  }
+},
     { 
       header: "Action & Context", 
       accessor: "operation",
@@ -153,21 +154,22 @@ function AuditLogs() {
         </div>
       )
     },
-    { 
-      header: "", 
-      accessor: "id",
-      render: (log) => (
-        <div className="flex justify-end pr-2">
-          <Button 
-            variant="secondary" 
-            size="icon" 
-            icon={Eye} 
-            onClick={() => setSelectedLog(log)}
-            className="rounded-full shadow-sm border-zinc-200"
-          />
-        </div>
-      )
-    }
+{ 
+  header: "", 
+  accessor: "id",
+  render: (log) => (
+    <div className="flex justify-end pr-2">
+      <Button 
+        variant="secondary" 
+        size="icon" 
+        icon={Eye} 
+        onClick={() => setSelectedLog(log)}
+        // Added specific hover scale and transition
+        className="rounded-full shadow-sm border-zinc-200 hover:scale-110 hover:border-indigo-300 hover:text-indigo-600 transition-all duration-200"
+      />
+    </div>
+  )
+}
   ];
 
   if (error) return <Alert type="error" title="Sync Error" message={error} />;

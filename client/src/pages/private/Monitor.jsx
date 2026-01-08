@@ -14,7 +14,8 @@ import {
   Button, 
   Alert, 
   ConfirmationModal, 
-  Dropdown 
+  Dropdown,
+  Avatar
 } from '../../components/UI';
 
 const INACTIVE_THRESHOLD_MS = 60 * 1000; 
@@ -95,24 +96,24 @@ function Monitor() {
   };
 
   const columns = [
-    { 
-      header: "User Identity", 
-      accessor: "firstName",
-      sortable: true,
-      render: (user) => (
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-lg bg-zinc-50 border border-zinc-200 flex items-center justify-center font-bold text-sm text-zinc-500 shadow-sm shrink-0">
-            {(user.firstName || "U").charAt(0).toUpperCase()}
-          </div>
-          <div className="min-w-0">
-            <div className="font-semibold text-zinc-900 leading-tight truncate">
-              {user.firstName} {user.lastName}
-            </div>
-            <div className="text-xs text-zinc-400 font-mono truncate">{user.email}</div>
-          </div>
+{ 
+  header: "User Identity", 
+  accessor: "firstName",
+  sortable: true,
+  render: (user) => (
+    <div className="flex items-center gap-3">
+      {/* NEW AVATAR */}
+      <Avatar user={user} size="md" />
+
+      <div className="min-w-0">
+        <div className="font-semibold text-zinc-900 leading-tight truncate">
+          {user.firstName} {user.lastName}
         </div>
-      )
-    },
+        <div className="text-xs text-zinc-400 font-mono truncate">{user.email}</div>
+      </div>
+    </div>
+  )
+},
     { 
       header: "Status & Activity", 
       accessor: "last_active", // Using last_active for sorting timestamp

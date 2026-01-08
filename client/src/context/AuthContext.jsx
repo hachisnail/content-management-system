@@ -1,4 +1,3 @@
-// client/src/context/AuthContext.jsx
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import socket from '../socket';
 import api from '../api';
@@ -7,6 +6,7 @@ import useRealtimeResource from '../hooks/useRealtimeResource';
 const AuthContext = createContext(null);
 
 export const AuthProvider = ({ children }) => {
+  // 1. Initialize State from Local Storage
   const [session, setSession] = useState(() => {
     try {
       const stored = localStorage.getItem('user');
@@ -16,10 +16,8 @@ export const AuthProvider = ({ children }) => {
     }
   });
 
-  // CRITICAL FIX: 
-  // We pass a dummy ID ('_guest_') when session is null. 
-  // This forces the hook into "Singleton Mode" (defaulting to null) 
-  // instead of "List Mode" (defaulting to []).
+  // 2. Fetch Fresh Data (Real-time)
+  // We fetch the latest user data based on the session ID.
   const { 
     data: liveUser, 
     loading: liveLoading, 
@@ -29,13 +27,26 @@ export const AuthProvider = ({ children }) => {
     isEnabled: !!session?.id 
   });
 
-  // STRICT LOGIC: If session is null, user MUST be null.
-  // We also explicitly handle the case where liveUser might be an array to be safe.
-  const user = session 
-    ? (Array.isArray(liveUser) ? session : (liveUser || session)) 
-    : null;
+  // 3. SYNC: Merge Real-time Data into Session
+  // Whenever the server sends an update (via socket or initial fetch), 
+  // we update our local session state to match.
+  useEffect(() => {
+    if (liveUser && !Array.isArray(liveUser) && session) {
+      // Only update if the ID matches to prevent cross-user pollution
+      if (liveUser.id === session.id) {
+         setSession(prev => {
+            const newState = { ...prev, ...liveUser };
+            // Persist to local storage to keep state across refreshes
+            localStorage.setItem('user', JSON.stringify(newState));
+            return newState;
+         });
+      }
+    }
+  }, [liveUser]); // Dependency ensures this runs whenever server data changes
 
-  const loading = liveLoading && !!session;
+  // 4. Loading State
+  // We only consider it loading if we have a session but haven't verified it yet
+  const loading = liveLoading && !!session && !liveUser;
 
   // --- ACTIONS ---
 
@@ -52,16 +63,16 @@ export const AuthProvider = ({ children }) => {
   };
 
   const logout = async (callApi = true) => {
-    // 1. Clear Client State IMMEDIATELY
     setSession(null);
     localStorage.removeItem('user');
     if (socket.connected) socket.disconnect();
 
-    // 2. Call API in the background
     if (callApi) {
       api.logout().catch(err => console.error("Logout API failed (harmless):", err));
     }
   };
+
+  // --- GLOBAL EVENT LISTENERS ---
 
   useEffect(() => {
     const handleUnauthorized = () => {
@@ -95,12 +106,12 @@ export const AuthProvider = ({ children }) => {
 
   return (
     <AuthContext.Provider value={{ 
-      user, 
+      user: session, // The UI now always reads from 'session', enabling optimistic updates
       login, 
       logout, 
       loading, 
       error: liveError,
-      isAuthenticated: !!user 
+      isAuthenticated: !!session 
     }}>
       {children}
     </AuthContext.Provider>

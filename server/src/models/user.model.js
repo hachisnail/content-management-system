@@ -7,6 +7,7 @@ const defineUserModel = (sequelize) => {
       primaryKey: true,
       autoIncrement: true,
     },
+    // ... other fields ...
     username: {
       type: DataTypes.STRING,
       allowNull: true,
@@ -29,6 +30,8 @@ const defineUserModel = (sequelize) => {
       validate: {
         isEmail: true,
       },
+      // --- FIX: Explicit Collation ---
+      collate: 'utf8mb4_general_ci',
     },
     password: {
       type: DataTypes.STRING,
@@ -42,23 +45,18 @@ const defineUserModel = (sequelize) => {
       type: DataTypes.DATEONLY,
       allowNull: true,
     },
-  role: {
-      // Switch from ENUM to JSON to support multiple roles ['admin', 'viewer']
+    role: {
       type: DataTypes.JSON, 
       allowNull: false,
-      defaultValue: ["viewer"], // Default is now an array
-      // Getter/Setter ensures it always behaves like an array in your code
+      defaultValue: ["viewer"],
       get() {
         const rawValue = this.getDataValue('role');
-        // Handle cases where DB might still have old string values
         if (typeof rawValue === 'string') {
-            // Check if it's a JSON string or just a plain role string
             try { return JSON.parse(rawValue); } catch { return [rawValue]; }
         }
         return rawValue || [];
       },
       set(value) {
-        // Ensure we always store an array
         const valToStore = Array.isArray(value) ? value : [value];
         this.setDataValue('role', valToStore);
       }
@@ -91,6 +89,15 @@ const defineUserModel = (sequelize) => {
       type: DataTypes.DATE,
       allowNull: true,
     },
+    registrationToken: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+    // --- NEW FIELD ---
+    invitationExpiresAt: {
+      type: DataTypes.DATE,
+      allowNull: true,
+    },
   }, {
     timestamps: true,
     tableName: 'users',
@@ -99,7 +106,10 @@ const defineUserModel = (sequelize) => {
         unique: true,
         fields: ['email']
       }
-    ]
+    ],
+    // --- FIX: Table defaults ---
+    charset: 'utf8mb4',
+    collate: 'utf8mb4_general_ci'
   });
 
   return User;

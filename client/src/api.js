@@ -62,6 +62,31 @@ const api = {
   logout: async () => {
     return await axiosInstance.post('/auth/logout');
   },
+
+  // NEW: Update User Profile
+  updateUser: async (id, data) => {
+    return await axiosInstance.put(`/users/${id}`, data);
+  },
+
+  // NEW: Generic File Upload
+  // NOTE: We don't set Content-Type manually; axios/browser does it for FormData
+  uploadFile: async (formData) => {
+    return await axiosInstance.post('/files/upload', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+  
+  // Helper to get file URL
+  getFileUrl: (fileId) => `${API_BASE_URL}/files/${fileId}`,
+
+  updateUser: async (id, data) => {
+    return await axiosInstance.put(`/users/${id}`, data);
+  },
+
+  // --- NEW METHOD ---
+  deleteUser: async (id) => {
+    return await axiosInstance.delete(`/users/${id}`);
+  },
 };
 
 export default api;

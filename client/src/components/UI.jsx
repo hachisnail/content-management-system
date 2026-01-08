@@ -1,168 +1,209 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { createPortal } from 'react-dom';
-import { 
-  X, Check, AlertCircle, Info, AlertTriangle, 
-  ChevronDown, ChevronUp, ChevronLeft, ChevronRight,
-  Search, Filter, Loader2, ArrowUpDown
-} from 'lucide-react';
+import React, { useState, useEffect, useMemo, useRef } from "react";
+import { createPortal } from "react-dom";
+import {
+  X,
+  Check,
+  AlertCircle,
+  Info,
+  AlertTriangle,
+  ChevronDown,
+  ChevronUp,
+  ChevronLeft,
+  ChevronRight,
+  Search,
+  Filter,
+  Loader2,
+  ArrowUpDown,
+} from "lucide-react";
+import api from '../api';
 
 // --- 1. DROPDOWN (New Component for Native Filters) ---
-export const Dropdown = ({ trigger, children, align = 'right' }) => {
+export const Dropdown = ({ trigger, children, align = "right", matchWidth = false }) => {
   const [isOpen, setIsOpen] = useState(false);
-  const [coords, setCoords] = useState({ top: 0, left: 0 });
+  const [coords, setCoords] = useState({});
+  const [placement, setPlacement] = useState('bottom');
   const triggerRef = useRef(null);
   
-  // Generate a unique ID for this specific dropdown instance
-  // We use a ref so the ID persists across renders
   const dropdownId = useRef(Math.random().toString(36).substr(2, 9)).current;
 
   const toggleOpen = (e) => {
-    e.stopPropagation(); // Stop click from bubbling to table rows
-    
-    if (!isOpen) {
-      // LOGIC: Dispatch a custom event telling all other dropdowns to close
-      document.dispatchEvent(new CustomEvent('ui:dropdown:open', { detail: dropdownId }));
+    e.stopPropagation();
 
-      // Calculate position dynamically
+    if (!isOpen) {
+      document.dispatchEvent(new CustomEvent("ui:dropdown:open", { detail: dropdownId }));
+
       if (triggerRef.current) {
         const rect = triggerRef.current.getBoundingClientRect();
-        setCoords({
-          top: rect.bottom + window.scrollY + 4,
-          left: align === 'right' ? rect.right : rect.left,
-        });
+        const viewportHeight = window.innerHeight;
+        const spaceBelow = viewportHeight - rect.bottom;
+        const menuHeightEstimate = 220; 
+
+        // Smart Vertical Logic: Open UP if 'top' requested OR not enough space below
+        const shouldOpenUp = align === 'top' || (spaceBelow < menuHeightEstimate && rect.top > spaceBelow);
+
+        const newCoords = {
+          left: rect.left, // Default to Left alignment
+          width: matchWidth ? rect.width : 'auto' // Optional: Match trigger width
+        };
+
+        // Horizontal Logic
+        let transform = "none";
+        if (align === 'right') {
+            newCoords.left = rect.right;
+            transform = "translateX(-100%)";
+        } 
+        // Note: For 'top', we default to 'left' alignment (standard for footers), 
+        // unless 'right' is explicitly asked.
+
+        newCoords.transform = transform;
+
+        if (shouldOpenUp) {
+          newCoords.bottom = viewportHeight - rect.top + 6;
+          setPlacement('top');
+        } else {
+          newCoords.top = rect.bottom + 6;
+          setPlacement('bottom');
+        }
+
+        setCoords(newCoords);
       }
     }
     setIsOpen(!isOpen);
   };
 
   useEffect(() => {
-    // 1. Close when clicking anywhere else
     const handleGlobalClick = () => setIsOpen(false);
-    
-    // 2. LOGIC: Close this dropdown if we hear another one opening
-    const handleOtherOpen = (e) => {
-      if (e.detail !== dropdownId) {
-        setIsOpen(false);
-      }
-    };
-    
+    const handleOtherOpen = (e) => { if (e.detail !== dropdownId) setIsOpen(false); };
+
     if (isOpen) {
-      window.addEventListener('click', handleGlobalClick);
-      // Close on scroll to prevent menu from detaching from button
-      window.addEventListener('scroll', handleGlobalClick, true); 
-      window.addEventListener('resize', handleGlobalClick);
-      // Listen for the exclusive open event
-      document.addEventListener('ui:dropdown:open', handleOtherOpen);
+      window.addEventListener("click", handleGlobalClick);
+      window.addEventListener("scroll", handleGlobalClick, true);
+      window.addEventListener("resize", handleGlobalClick);
+      document.addEventListener("ui:dropdown:open", handleOtherOpen);
     }
 
     return () => {
-      window.removeEventListener('click', handleGlobalClick);
-      window.removeEventListener('scroll', handleGlobalClick, true);
-      window.removeEventListener('resize', handleGlobalClick);
-      document.removeEventListener('ui:dropdown:open', handleOtherOpen);
+      window.removeEventListener("click", handleGlobalClick);
+      window.removeEventListener("scroll", handleGlobalClick, true);
+      window.removeEventListener("resize", handleGlobalClick);
+      document.removeEventListener("ui:dropdown:open", handleOtherOpen);
     };
   }, [isOpen, dropdownId]);
 
   return (
     <>
-      <div ref={triggerRef} onClick={toggleOpen} className="inline-block cursor-pointer">
+      {/* TRIGGER: Changed from inline-block to block w-full to fill containers */}
+      <div ref={triggerRef} onClick={toggleOpen} className="block w-full cursor-pointer relative">
         {trigger}
       </div>
-      
-      {/* PORTAL: Renders the menu attached to the <body>, not the table */}
-      {/* This ensures it floats on top of everything and never gets cut off */}
-      {isOpen && createPortal(
-        <div 
-          className="fixed z-[9999] bg-white rounded-xl shadow-xl border border-zinc-100 animate-in fade-in zoom-in-95 duration-100 min-w-[160px]"
-          style={{ 
-            top: coords.top, 
-            left: coords.left,
-            transform: align === 'right' ? 'translateX(-100%)' : 'none'
-          }}
-          onClick={(e) => e.stopPropagation()} 
-        >
-          <div className="py-1">
-            {children}
-          </div>
-        </div>,
-        document.body
-      )}
+
+      {isOpen &&
+        createPortal(
+          <div
+            className={`fixed z-[9999] bg-white rounded-xl shadow-xl border border-zinc-100 min-w-[160px] 
+              ${placement === 'top' ? 'origin-bottom animate-in slide-in-from-bottom-2' : 'origin-top animate-in slide-in-from-top-2'} 
+              fade-in zoom-in-95 duration-100`}
+            style={{
+              top: coords.top,
+              bottom: coords.bottom,
+              left: coords.left,
+              width: coords.width, // Dynamic width
+              transform: coords.transform,
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="py-1">{children}</div>
+          </div>,
+          document.body
+        )}
     </>
   );
 };
 
 export const Checkbox = ({ checked, onChange, disabled }) => (
-  <input 
-    type="checkbox" 
-    checked={checked} 
-    onChange={onChange} 
+  <input
+    type="checkbox"
+    checked={checked}
+    onChange={onChange}
     disabled={disabled}
-    className="w-4 h-4 rounded border-zinc-300 text-black focus:ring-black transition-colors cursor-pointer disabled:opacity-50" 
+    className="w-4 h-4 rounded border-zinc-300 text-black focus:ring-black transition-colors cursor-pointer disabled:opacity-50"
   />
 );
 
-
-export const DataTable = ({ 
-  columns, 
-  data = [], 
-  onSearch, 
+export const DataTable = ({
+  columns,
+  data = [],
+  onSearch,
   onSort,
-  filterSlot, 
-  isLoading, 
+  filterSlot,
+  isLoading,
   searchPlaceholder = "Search...",
   enableMultiSelect = false,
-  onSelectionChange, 
+  onSelectionChange,
   bulkActionSlot,
-  serverSidePagination 
+  serverSidePagination,
 }) => {
-  const [sortConfig, setSortConfig] = useState({ key: null, direction: 'asc' });
+  const [sortConfig, setSortConfig] = useState({ key: null, direction: "asc" });
   const [localPage, setLocalPage] = useState(1);
   const [selectedIds, setSelectedIds] = useState(new Set());
   
+
   // NEW: State to keep the search text in the input persistent while typing
-  const [searchValue, setSearchValue] = useState("");
+  const [searchValue, setSearchValue] = useState(""); 
   
 
   // 1. Determine active pagination source
   const itemsPerPage = serverSidePagination?.itemsPerPage || 10;
-  const currentPage = serverSidePagination ? serverSidePagination.currentPage : localPage;
-  const onPageChange = serverSidePagination ? serverSidePagination.onPageChange : setLocalPage;
-  
+  const currentPage = serverSidePagination
+    ? serverSidePagination.currentPage
+    : localPage;
+  const onPageChange = serverSidePagination
+    ? serverSidePagination.onPageChange
+    : setLocalPage;
+
   // 2. Determine true total items
-  const totalItems = serverSidePagination ? serverSidePagination.totalItems : data.length;
+  const totalItems = serverSidePagination
+    ? serverSidePagination.totalItems
+    : data.length;
   const totalPages = Math.max(1, Math.ceil(totalItems / itemsPerPage));
 
-    useEffect(() => {
+  const [isJumping, setIsJumping] = useState(false);
+  const [jumpValue, setJumpValue] = useState("");
+
+  useEffect(() => {
     if (serverSidePagination?.search !== undefined) {
       setSearchValue(serverSidePagination.search);
     }
   }, [serverSidePagination?.search]);
 
   // 3. Process Data
-const paginatedData = useMemo(() => {
+  const paginatedData = useMemo(() => {
     // If server-side is active, skip local manipulation entirely
     if (serverSidePagination) return data;
 
     let items = [...data];
     if (sortConfig.key) {
       items.sort((a, b) => {
-        const valA = a[sortConfig.key] || '';
-        const valB = b[sortConfig.key] || '';
-        if (valA < valB) return sortConfig.direction === 'asc' ? -1 : 1;
-        if (valA > valB) return sortConfig.direction === 'asc' ? 1 : -1;
+        const valA = a[sortConfig.key] || "";
+        const valB = b[sortConfig.key] || "";
+        if (valA < valB) return sortConfig.direction === "asc" ? -1 : 1;
+        if (valA > valB) return sortConfig.direction === "asc" ? 1 : -1;
         return 0;
       });
     }
-    return items.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+    return items.slice(
+      (currentPage - 1) * itemsPerPage,
+      currentPage * itemsPerPage
+    );
   }, [data, sortConfig, serverSidePagination, currentPage, itemsPerPage]);
 
   const canGoPrev = currentPage > 1;
   const canGoNext = currentPage < totalPages;
 
-const handleSearchChange = (e) => {
+  const handleSearchChange = (e) => {
     const value = e.target.value;
     setSearchValue(value); // Update UI immediately (no flash)
-    onSearch(value);      // Send to parent hook (debounced)
+    onSearch(value); // Send to parent hook (debounced)
   };
 
   const handleClearSearch = () => {
@@ -170,19 +211,19 @@ const handleSearchChange = (e) => {
     onSearch("");
   };
 
-const requestSort = (key) => {
-    let direction = 'asc';
+  const requestSort = (key) => {
+    let direction = "asc";
     let newConfig = { key, direction };
-    
+
     if (sortConfig.key === key) {
-      if (sortConfig.direction === 'asc') {
-        direction = 'desc';
+      if (sortConfig.direction === "asc") {
+        direction = "desc";
         newConfig = { key, direction };
-      } else if (sortConfig.direction === 'desc') {
-        newConfig = { key: null, direction: 'asc' }; // Reset state
+      } else if (sortConfig.direction === "desc") {
+        newConfig = { key: null, direction: "asc" };
       }
     }
-    
+
     setSortConfig(newConfig);
 
     // FIX: Trigger the server-side update
@@ -193,7 +234,7 @@ const requestSort = (key) => {
 
   const handleSelectAll = (e) => {
     if (e.target.checked) {
-      const allIds = new Set(paginatedData.map(row => row.id));
+      const allIds = new Set(paginatedData.map((row) => row.id));
       setSelectedIds(allIds);
       onSelectionChange && onSelectionChange(Array.from(allIds));
     } else {
@@ -210,6 +251,19 @@ const requestSort = (key) => {
     onSelectionChange && onSelectionChange(Array.from(newSelected));
   };
 
+  const handleJumpSubmit = (e) => {
+    e.preventDefault();
+    const targetPage = parseInt(jumpValue);
+    // Validation to ensure the target is within the valid range
+    if (!isNaN(targetPage) && targetPage >= 1 && targetPage <= totalPages) {
+      onPageChange(targetPage);
+    }
+    setIsJumping(false);
+    setJumpValue("");
+  };
+
+  const isOnlyOnePage = totalPages <= 1;
+
   if (isLoading) {
     return (
       <div className="min-h-[400px] flex items-center justify-center bg-white border border-zinc-200 rounded-lg">
@@ -221,21 +275,32 @@ const requestSort = (key) => {
     );
   }
 
-  const isAllSelected = paginatedData.length > 0 && paginatedData.every(row => selectedIds.has(row.id));
+  const isAllSelected =
+    paginatedData.length > 0 &&
+    paginatedData.every((row) => selectedIds.has(row.id));
 
   return (
     <div className="bg-white border border-zinc-200 rounded-lg shadow-sm overflow-hidden flex flex-col relative">
-      
       {/* BULK ACTION BAR */}
       {selectedIds.size > 0 && bulkActionSlot && (
         <div className="absolute top-0 left-0 right-0 z-20 bg-zinc-900 text-white p-3 flex items-center justify-between animate-in slide-in-from-top-2 duration-200">
           <div className="flex items-center gap-4 px-2">
-            <span className="font-bold text-sm bg-zinc-800 px-2 py-0.5 rounded text-zinc-200">{selectedIds.size} Selected</span>
-            <span className="text-xs text-zinc-400 border-l border-zinc-700 pl-4">Select items to perform actions</span>
+            <span className="font-bold text-sm bg-zinc-800 px-2 py-0.5 rounded text-zinc-200">
+              {selectedIds.size} Selected
+            </span>
+            <span className="text-xs text-zinc-400 border-l border-zinc-700 pl-4">
+              Select items to perform actions
+            </span>
           </div>
           <div className="flex items-center gap-2">
             {bulkActionSlot}
-            <button onClick={() => { setSelectedIds(new Set()); onSelectionChange([]); }} className="p-1 hover:bg-zinc-800 rounded text-zinc-400 hover:text-white">
+            <button
+              onClick={() => {
+                setSelectedIds(new Set());
+                onSelectionChange([]);
+              }}
+              className="p-1 hover:bg-zinc-800 rounded text-zinc-400 hover:text-white"
+            >
               <X size={18} />
             </button>
           </div>
@@ -248,8 +313,8 @@ const requestSort = (key) => {
           <div className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400 pointer-events-none">
             <Search size={16} />
           </div>
-          
-          <input 
+
+          <input
             className="w-full pl-9 pr-10 py-2 bg-white border border-zinc-200 rounded-lg text-sm focus:outline-none focus:border-zinc-400 focus:ring-2 focus:ring-zinc-100 transition-all placeholder:text-zinc-400"
             placeholder={searchPlaceholder}
             value={searchValue}
@@ -258,7 +323,7 @@ const requestSort = (key) => {
 
           {/* NEW: Clear button that appears only when there is text */}
           {searchValue && (
-            <button 
+            <button
               onClick={handleClearSearch}
               className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 transition-colors"
             >
@@ -267,42 +332,51 @@ const requestSort = (key) => {
           )}
         </div>
         <div className="flex gap-2 w-full sm:w-auto justify-end">
-           {filterSlot}
+          {filterSlot}
         </div>
       </div>
 
       {/* TABLE CONTENT */}
       <div className="overflow-x-auto min-h-[300px]">
-        {isLoading && (
-          <div className="absolute inset-0 z-10 bg-white/60 backdrop-blur-[1px] flex items-center justify-center transition-all duration-300">
-            <div className="flex flex-col items-center gap-3">
-              <Loader2 className="animate-spin text-indigo-500" size={32} />
-              <span className="text-xs font-medium text-zinc-500 tracking-wide uppercase">Syncing...</span>
-            </div>
-          </div>
-        )}
         <table className="w-full text-left border-collapse">
           <thead>
             <tr className="border-b border-zinc-200 bg-zinc-50/80 text-xs uppercase tracking-wider text-zinc-500 font-semibold backdrop-blur-sm">
               {enableMultiSelect && (
                 <th className="p-4 w-[40px] text-center">
-                  <Checkbox checked={isAllSelected} onChange={handleSelectAll} />
+                  <Checkbox
+                    checked={isAllSelected}
+                    onChange={handleSelectAll}
+                  />
                 </th>
               )}
               {columns.map((col, idx) => (
-                <th 
-                  key={idx} 
-                  className={`p-4 select-none whitespace-nowrap ${col.sortable ? 'cursor-pointer hover:bg-zinc-100 hover:text-black transition-colors group' : ''}`}
+                <th
+                  key={idx}
+                  className={`p-4 select-none whitespace-nowrap transition-all duration-200 ${
+                    col.sortable
+                      ? "cursor-pointer hover:bg-zinc-100 hover:text-indigo-600 group"
+                      : ""
+                  }`}
                   onClick={() => col.sortable && requestSort(col.accessor)}
                 >
                   <div className="flex items-center gap-1.5">
                     {col.header}
                     {col.sortable && (
-                      <span className={`transition-opacity ${sortConfig.key === col.accessor ? 'opacity-100 text-black' : 'opacity-30 group-hover:opacity-60'}`}>
+                      <span
+                        className={`transition-all duration-300 transform ${
+                          sortConfig.key === col.accessor
+                            ? "opacity-100 text-indigo-600 scale-110"
+                            : "opacity-30 group-hover:opacity-100 group-hover:scale-105"
+                        }`}
+                      >
                         {sortConfig.key === col.accessor ? (
-                           sortConfig.direction === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />
+                          sortConfig.direction === "asc" ? (
+                            <ChevronUp size={14} />
+                          ) : (
+                            <ChevronDown size={14} />
+                          )
                         ) : (
-                           <ArrowUpDown size={14} />
+                          <ArrowUpDown size={14} />
                         )}
                       </span>
                     )}
@@ -312,25 +386,44 @@ const requestSort = (key) => {
             </tr>
           </thead>
           <tbody className="text-sm divide-y divide-zinc-100 bg-white">
-            {paginatedData.length > 0 ? paginatedData.map((row, rIdx) => {
-              const isSelected = selectedIds.has(row.id);
-              return (
-                <tr key={row.id || rIdx} className={`group transition-colors ${isSelected ? 'bg-zinc-50' : 'hover:bg-zinc-50'}`}>
-                  {enableMultiSelect && (
-                    <td className="p-4 w-[40px] text-center">
-                      <Checkbox checked={isSelected} onChange={() => handleSelectRow(row.id)} />
-                    </td>
-                  )}
-                  {columns.map((col, cIdx) => (
-                    <td key={cIdx} className="p-4 text-zinc-700 font-medium align-middle">
-                      {col.render ? col.render(row) : row[col.accessor]}
-                    </td>
-                  ))}
-                </tr>
-              );
-            }) : (
+            {paginatedData.length > 0 ? (
+              paginatedData.map((row, rIdx) => {
+                const isSelected = selectedIds.has(row.id);
+                return (
+                  <tr
+                    key={row.id || rIdx}
+                    // Added professional hover and selection transitions
+                    className={`group transition-all duration-200 ease-in-out border-l-2 ${
+                      isSelected
+                        ? "bg-indigo-50/30 border-indigo-500"
+                        : "hover:bg-zinc-50/80 border-transparent hover:border-zinc-300"
+                    }`}
+                  >
+                    {enableMultiSelect && (
+                      <td className="p-4 w-[40px] text-center">
+                        <Checkbox
+                          checked={isSelected}
+                          onChange={() => handleSelectRow(row.id)}
+                        />
+                      </td>
+                    )}
+                    {columns.map((col, cIdx) => (
+                      <td
+                        key={cIdx}
+                        className="p-4 text-zinc-700 font-medium align-middle"
+                      >
+                        {col.render ? col.render(row) : row[col.accessor]}
+                      </td>
+                    ))}
+                  </tr>
+                );
+              })
+            ) : (
               <tr>
-                <td colSpan={columns.length + (enableMultiSelect ? 1 : 0)} className="p-12 text-center text-zinc-400">
+                <td
+                  colSpan={columns.length + (enableMultiSelect ? 1 : 0)}
+                  className="p-12 text-center text-zinc-400"
+                >
                   <div className="flex flex-col items-center gap-2">
                     <Search size={32} className="opacity-20" />
                     <p>No records found</p>
@@ -342,30 +435,69 @@ const requestSort = (key) => {
         </table>
       </div>
 
-      {/* PAGINATION FOOTER */}
       <div className="p-3 border-t border-zinc-200 flex items-center justify-between text-xs text-zinc-500 bg-white">
-         <span className="hidden sm:inline">
-           Showing {totalItems === 0 ? 0 : (currentPage - 1) * itemsPerPage + 1} - {Math.min(currentPage * itemsPerPage, totalItems)} of {totalItems}
-         </span>
-         <div className="flex gap-2 w-full sm:w-auto justify-between sm:justify-end">
-            <button 
-              className="px-3 py-1.5 border border-zinc-200 rounded-md hover:bg-zinc-50 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
-              disabled={!canGoPrev} 
-              onClick={() => onPageChange(currentPage - 1)}
-            >
-              <ChevronLeft size={14} /> Prev
-            </button>
-            <div className="flex items-center px-2 font-medium">
-              Page {currentPage} of {totalPages}
-            </div>
-            <button 
-              className="px-3 py-1.5 border border-zinc-200 rounded-md hover:bg-zinc-50 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
-              disabled={!canGoNext} 
-              onClick={() => onPageChange(currentPage + 1)}
-            >
-              Next <ChevronRight size={14} />
-            </button>
-         </div>
+        <span className="hidden sm:inline">
+          Showing {totalItems === 0 ? 0 : (currentPage - 1) * itemsPerPage + 1}{" "}
+          - {Math.min(currentPage * itemsPerPage, totalItems)} of {totalItems}
+        </span>
+
+        <div className="flex gap-2 w-full sm:w-auto justify-between sm:justify-end items-center">
+          {/* Previous Button: Disabled if on first page OR if only one page exists */}
+          <button
+            className="px-3 py-1.5 border border-zinc-200 rounded-md hover:bg-zinc-50 hover:text-zinc-900 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent flex items-center gap-1 transition-all active:scale-95"
+            disabled={!canGoPrev || isOnlyOnePage}
+            onClick={() => onPageChange(currentPage - 1)}
+          >
+            <ChevronLeft size={14} /> Prev
+          </button>
+
+          {/* Jump Indicator: Disabled if only one page exists */}
+          <div className="relative flex items-center justify-center min-w-[110px] h-8">
+            {!isJumping ? (
+              <button
+                onClick={() => {
+                  if (isOnlyOnePage) return; // Prevent jumping if only one page
+                  setJumpValue(currentPage.toString());
+                  setIsJumping(true);
+                }}
+                // Add disabled styling if only one page exists
+                className={`px-3 py-1 font-medium rounded-md border border-transparent transition-all whitespace-nowrap ${
+                  isOnlyOnePage
+                    ? "text-zinc-300 cursor-not-allowed"
+                    : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 hover:border-zinc-200"
+                }`}
+                title={isOnlyOnePage ? "" : "Click to jump to page"}
+                disabled={isOnlyOnePage}
+              >
+                Page {currentPage} of {totalPages}
+              </button>
+            ) : (
+              <div className="absolute inset-0 flex items-center justify-center bg-white z-10 px-1">
+                <form onSubmit={handleJumpSubmit} className="w-full">
+                  <input
+                    autoFocus
+                    type="number"
+                    className="w-full h-7 px-2 border border-indigo-500 rounded text-center text-zinc-900 focus:ring-2 focus:ring-indigo-100 outline-none shadow-sm"
+                    value={jumpValue}
+                    onChange={(e) => setJumpValue(e.target.value)}
+                    onBlur={() => setIsJumping(false)}
+                    onKeyDown={(e) => e.key === "Escape" && setIsJumping(false)}
+                    placeholder="#"
+                  />
+                </form>
+              </div>
+            )}
+          </div>
+
+          {/* Next Button: Disabled if on last page OR if only one page exists */}
+          <button
+            className="px-3 py-1.5 border border-zinc-200 rounded-md hover:bg-zinc-50 hover:text-zinc-900 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent flex items-center gap-1 transition-all active:scale-95"
+            disabled={!canGoNext || isOnlyOnePage}
+            onClick={() => onPageChange(currentPage + 1)}
+          >
+            Next <ChevronRight size={14} />
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -373,7 +505,9 @@ const requestSort = (key) => {
 
 // --- 1. CARDS & CONTAINERS ---
 export const Card = ({ children, className = "", title, action, footer }) => (
-  <div className={`bg-white border border-zinc-200 rounded-lg shadow-sm flex flex-col ${className}`}>
+  <div
+    className={`bg-white border border-zinc-200 rounded-lg shadow-sm flex flex-col ${className}`}
+  >
     {(title || action) && (
       <div className="px-6 py-4 border-b border-zinc-100 flex justify-between items-center shrink-0">
         {title && <h3 className="font-semibold text-zinc-900">{title}</h3>}
@@ -388,42 +522,94 @@ export const Card = ({ children, className = "", title, action, footer }) => (
     )}
   </div>
 );
-
-export const Button = ({ 
-  children, 
-  variant = 'primary', 
-  size = 'md', 
-  className = '', 
+export const Button = ({
+  children,
+  variant = "primary",
+  size = "md",
+  className = "",
   icon: Icon,
-  ...props 
+  isLoading,
+  ...props
 }) => {
-  const base = "inline-flex items-center justify-center font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed";
-  
+  const base =
+    "inline-flex items-center justify-center font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.97]";
+
   const variants = {
-    primary: "bg-indigo-600 text-white hover:bg-indigo-700 focus:ring-indigo-500 shadow-sm border border-transparent",
-    secondary: "bg-white text-gray-700 hover:bg-gray-50 focus:ring-indigo-500 border border-gray-300 shadow-sm",
-    danger: "bg-red-50 text-red-700 hover:bg-red-100 focus:ring-red-500 border border-red-200",
-    ghost: "bg-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-100",
-    link: "text-indigo-600 hover:text-indigo-900 hover:underline p-0",
+    primary:
+      "bg-indigo-600 text-white hover:bg-indigo-700 hover:shadow-lg hover:shadow-indigo-200/50 focus:ring-indigo-500 border border-transparent",
+    secondary:
+      "bg-white text-zinc-700 hover:bg-zinc-50 hover:text-zinc-900 hover:border-zinc-400 focus:ring-indigo-500 border border-zinc-300 shadow-sm",
+    danger:
+      "bg-red-50 text-red-700 hover:bg-red-600 hover:text-white focus:ring-red-500 border border-red-200 hover:shadow-lg hover:shadow-red-200/50",
+    ghost:
+      "bg-transparent text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 border border-transparent",
+    link: "text-indigo-600 hover:text-indigo-800 hover:underline p-0 underline-offset-4",
   };
 
   const sizes = {
     xs: "px-2 py-1 text-xs rounded",
     sm: "px-3 py-1.5 text-sm rounded-md",
     md: "px-4 py-2 text-sm rounded-md",
+    lg: "px-6 py-3 text-base rounded-lg",
     icon: "p-2 rounded-full",
   };
 
   return (
-    <button 
+    <button
       className={`${base} ${variants[variant]} ${sizes[size]} ${className}`}
       {...props}
     >
-      {Icon && <Icon className="mr-2 h-4 w-4" />}
+      {isLoading ? (
+        <Loader2 className="animate-spin h-4 w-4 mr-2" />
+      ) : (
+        Icon && (
+          <Icon
+            className={`${
+              children ? "mr-2" : ""
+            } h-4 w-4 transition-transform group-hover:scale-110`}
+          />
+        )
+      )}
       {children}
     </button>
   );
 };
+
+// --- Updated Input with Focus Glow ---
+export const Input = ({
+  label,
+  icon: Icon,
+  error,
+  className = "",
+  ...props
+}) => (
+  <div className={`w-full ${className}`}>
+    {label && (
+      <label className="block text-xs font-bold uppercase tracking-wide text-zinc-500 mb-1.5 ml-1">
+        {label}
+      </label>
+    )}
+    <div
+      className={`relative group transition-all duration-300 rounded-lg border ${
+        error
+          ? "border-red-300 bg-red-50"
+          : "border-zinc-200 bg-zinc-50 focus-within:bg-white focus-within:border-indigo-400 focus-within:ring-4 focus-within:ring-indigo-500/10 focus-within:shadow-sm"
+      }`}
+    >
+      {Icon && (
+        <div className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400 group-focus-within:text-indigo-600 transition-colors pointer-events-none">
+          <Icon size={16} />
+        </div>
+      )}
+      <input
+        className={`w-full bg-transparent border-none p-2.5 text-sm text-zinc-900 placeholder-zinc-400 focus:ring-0 ${
+          Icon ? "pl-10" : ""
+        }`}
+        {...props}
+      />
+    </div>
+  </div>
+);
 
 /**
  * Reusable 3-Dots Action Menu
@@ -440,8 +626,8 @@ export const ActionMenu = ({ actions = [] }) => {
         setIsOpen(false);
       }
     };
-    if (isOpen) document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    if (isOpen) document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [isOpen]);
 
   if (actions.length === 0) return null;
@@ -464,23 +650,31 @@ export const ActionMenu = ({ actions = [] }) => {
             {actions.map((action, index) => {
               // Skip if hidden
               if (action.show === false) return null;
-              
+
               return (
                 <button
                   key={index}
                   onClick={(e) => {
-                     e.stopPropagation();
-                     setIsOpen(false); // CRITICAL: Close menu immediately before action
-                     action.onClick();
+                    e.stopPropagation();
+                    setIsOpen(false); // CRITICAL: Close menu immediately before action
+                    action.onClick();
                   }}
                   disabled={action.disabled}
                   className={`
                     group flex w-full items-center px-4 py-2 text-sm text-left
-                    ${action.variant === 'danger' ? 'text-red-600 hover:bg-red-50' : 'text-gray-700 hover:bg-gray-100'}
+                    ${
+                      action.variant === "danger"
+                        ? "text-red-600 hover:bg-red-50"
+                        : "text-gray-700 hover:bg-gray-100"
+                    }
                     disabled:opacity-50 disabled:cursor-not-allowed
                   `}
                 >
-                  {action.icon && <span className="mr-3 opacity-70 group-hover:opacity-100">{action.icon}</span>}
+                  {action.icon && (
+                    <span className="mr-3 opacity-70 group-hover:opacity-100">
+                      {action.icon}
+                    </span>
+                  )}
                   {action.label}
                 </button>
               );
@@ -491,35 +685,25 @@ export const ActionMenu = ({ actions = [] }) => {
     </div>
   );
 };
-// --- 3. INPUTS & SELECTS ---
-export const Input = ({ label, icon: Icon, error, className = "", ...props }) => (
-  <div className={`w-full ${className}`}>
-    {label && <label className="block text-xs font-bold uppercase tracking-wide text-zinc-500 mb-1.5">{label}</label>}
-    <div className={`relative group transition-all duration-200 rounded-lg border ${error ? "border-red-300 bg-red-50" : "border-zinc-200 bg-zinc-50 focus-within:bg-white focus-within:border-zinc-400 focus-within:shadow-sm"}`}>
-      {Icon && (
-        <div className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400 group-focus-within:text-zinc-800 pointer-events-none">
-          <Icon size={16} />
-        </div>
-      )}
-      <input 
-        className={`w-full bg-transparent border-none p-2.5 text-sm text-zinc-900 placeholder-zinc-400 focus:ring-0 ${Icon ? "pl-10" : ""}`}
-        {...props}
-      />
-    </div>
-    {error && <p className="mt-1 text-xs text-red-600 flex items-center gap-1"><AlertCircle size={10} /> {error}</p>}
-  </div>
-);
 
 export const Select = ({ label, options = [], error, ...props }) => (
   <div className="w-full">
-    {label && <label className="block text-xs font-bold uppercase tracking-wide text-zinc-500 mb-1.5">{label}</label>}
+    {label && (
+      <label className="block text-xs font-bold uppercase tracking-wide text-zinc-500 mb-1.5">
+        {label}
+      </label>
+    )}
     <div className="relative">
-      <select 
-        className={`w-full appearance-none bg-zinc-50 border ${error ? "border-red-300" : "border-zinc-200"} text-zinc-900 text-sm rounded-lg focus:ring-zinc-500 focus:border-zinc-500 block p-2.5 pr-8`}
+      <select
+        className={`w-full appearance-none bg-zinc-50 border ${
+          error ? "border-red-300" : "border-zinc-200"
+        } text-zinc-900 text-sm rounded-lg focus:ring-zinc-500 focus:border-zinc-500 block p-2.5 pr-8`}
         {...props}
       >
         {options.map((opt) => (
-          <option key={opt.value} value={opt.value}>{opt.label}</option>
+          <option key={opt.value} value={opt.value}>
+            {opt.label}
+          </option>
         ))}
       </select>
       <div className="absolute inset-y-0 right-0 flex items-center px-2 pointer-events-none text-zinc-500">
@@ -530,41 +714,74 @@ export const Select = ({ label, options = [], error, ...props }) => (
 );
 
 // --- 4. BADGES ---
-export const Badge = ({ children, variant = 'neutral', className = "" }) => {
+export const Badge = ({ children, variant = "neutral", className = "" }) => {
   const styles = {
     success: "bg-green-50 text-green-700 border-green-200",
     warning: "bg-amber-50 text-amber-700 border-amber-200",
     error: "bg-red-50 text-red-700 border-red-200",
     neutral: "bg-zinc-100 text-zinc-600 border-zinc-200",
-    dark: "bg-black text-white border-black"
+    dark: "bg-black text-white border-black",
   };
   return (
-    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${styles[variant]} ${className}`}>
+    <span
+      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${styles[variant]} ${className}`}
+    >
       {children}
     </span>
   );
 };
 
 // --- 5. ALERTS ---
-export const Alert = ({ type = 'info', title, message, onClose, className = "" }) => {
+export const Alert = ({
+  type = "info",
+  title,
+  message,
+  onClose,
+  className = "",
+}) => {
   const styles = {
-    success: { bg: "bg-green-50", border: "border-green-200", text: "text-green-800", icon: Check },
-    error: { bg: "bg-red-50", border: "border-red-200", text: "text-red-800", icon: AlertCircle },
-    warning: { bg: "bg-amber-50", border: "border-amber-200", text: "text-amber-800", icon: AlertTriangle },
-    info: { bg: "bg-blue-50", border: "border-blue-200", text: "text-blue-800", icon: Info }
+    success: {
+      bg: "bg-green-50",
+      border: "border-green-200",
+      text: "text-green-800",
+      icon: Check,
+    },
+    error: {
+      bg: "bg-red-50",
+      border: "border-red-200",
+      text: "text-red-800",
+      icon: AlertCircle,
+    },
+    warning: {
+      bg: "bg-amber-50",
+      border: "border-amber-200",
+      text: "text-amber-800",
+      icon: AlertTriangle,
+    },
+    info: {
+      bg: "bg-blue-50",
+      border: "border-blue-200",
+      text: "text-blue-800",
+      icon: Info,
+    },
   };
   const style = styles[type];
   const Icon = style.icon;
 
   return (
-    <div className={`flex items-start p-4 rounded-lg border ${style.bg} ${style.border} ${className}`}>
+    <div
+      className={`flex items-start p-4 rounded-lg border ${style.bg} ${style.border} ${className}`}
+    >
       <Icon className={`w-5 h-5 ${style.text} mt-0.5 shrink-0`} />
       <div className={`ml-3 flex-1 ${style.text}`}>
         {title && <h3 className="text-sm font-semibold">{title}</h3>}
         {message && <div className="text-sm mt-1 opacity-90">{message}</div>}
       </div>
       {onClose && (
-        <button onClick={onClose} className={`ml-auto -mx-1.5 -my-1.5 p-1.5 rounded-md hover:bg-black/5 ${style.text}`}>
+        <button
+          onClick={onClose}
+          className={`ml-auto -mx-1.5 -my-1.5 p-1.5 rounded-md hover:bg-black/5 ${style.text}`}
+        >
           <X size={16} />
         </button>
       )}
@@ -572,9 +789,15 @@ export const Alert = ({ type = 'info', title, message, onClose, className = "" }
   );
 };
 
-
 // --- 7. MODALS (Generic & Specific) ---
-export const Modal = ({ isOpen, onClose, title, children, footer, size = 'md' }) => {
+export const Modal = ({
+  isOpen,
+  onClose,
+  title,
+  children,
+  footer,
+  size = "md",
+}) => {
   if (!isOpen) return null;
 
   // Size configurations
@@ -583,28 +806,31 @@ export const Modal = ({ isOpen, onClose, title, children, footer, size = 'md' })
     md: "max-w-lg",
     lg: "max-w-2xl",
     xl: "max-w-4xl",
-    full: "max-w-[95vw] h-[90vh]"
+    full: "max-w-[95vw] h-[90vh]",
   };
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-      <div 
-        className="absolute inset-0 bg-zinc-900/60 backdrop-blur-sm transition-opacity" 
+      <div
+        className="absolute inset-0 bg-zinc-900/60 backdrop-blur-sm transition-opacity"
         onClick={onClose}
       />
-      <div className={`relative bg-white rounded-xl shadow-2xl w-full ${sizes[size]} flex flex-col max-h-[90vh] overflow-hidden border border-zinc-200 animate-in fade-in zoom-in-95 duration-200`}>
+      <div
+        className={`relative bg-white rounded-xl shadow-2xl w-full ${sizes[size]} flex flex-col max-h-[90vh] overflow-hidden border border-zinc-200 animate-in fade-in zoom-in-95 duration-200`}
+      >
         <div className="flex justify-between items-center px-6 py-4 border-b border-zinc-100 shrink-0">
-           <h3 className="font-bold text-lg text-zinc-900">{title}</h3>
-           <button onClick={onClose} className="p-1.5 text-zinc-400 hover:text-black hover:bg-zinc-100 rounded-lg transition-colors">
-             <X size={20} />
-           </button>
+          <h3 className="font-bold text-lg text-zinc-900">{title}</h3>
+          <button
+            onClick={onClose}
+            className="p-1.5 text-zinc-400 hover:text-black hover:bg-zinc-100 rounded-lg transition-colors"
+          >
+            <X size={20} />
+          </button>
         </div>
-        <div className="p-6 overflow-y-auto flex-1">
-          {children}
-        </div>
+        <div className="p-6 overflow-y-auto flex-1">{children}</div>
         {footer && (
           <div className="bg-zinc-50 px-6 py-4 border-t border-zinc-100 flex justify-end gap-3 shrink-0">
-             {footer}
+            {footer}
           </div>
         )}
       </div>
@@ -613,17 +839,95 @@ export const Modal = ({ isOpen, onClose, title, children, footer, size = 'md' })
 };
 
 // A Pre-built Confirmation Modal
-export const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message, confirmLabel = "Confirm", isDangerous = false }) => (
+export const ConfirmationModal = ({
+  isOpen,
+  onClose,
+  onConfirm,
+  title,
+  message,
+  confirmLabel = "Confirm",
+  isDangerous = false,
+}) => (
   <Modal isOpen={isOpen} onClose={onClose} title={title} size="sm">
     <div className="flex flex-col items-center text-center p-2">
-      <div className={`w-12 h-12 rounded-full flex items-center justify-center mb-4 ${isDangerous ? "bg-red-50 text-red-600" : "bg-zinc-100 text-zinc-600"}`}>
+      <div
+        className={`w-12 h-12 rounded-full flex items-center justify-center mb-4 ${
+          isDangerous ? "bg-red-50 text-red-600" : "bg-zinc-100 text-zinc-600"
+        }`}
+      >
         <AlertTriangle size={24} />
       </div>
       <p className="text-zinc-600 mb-6">{message}</p>
       <div className="flex gap-3 w-full">
-        <Button variant="secondary" className="flex-1" onClick={onClose}>Cancel</Button>
-        <Button variant={isDangerous ? "danger" : "primary"} className="flex-1" onClick={onConfirm}>{confirmLabel}</Button>
+        <Button variant="secondary" className="flex-1" onClick={onClose}>
+          Cancel
+        </Button>
+        <Button
+          variant={isDangerous ? "danger" : "primary"}
+          className="flex-1"
+          onClick={onConfirm}
+        >
+          {confirmLabel}
+        </Button>
       </div>
     </div>
   </Modal>
 );
+
+
+export const Avatar = ({ user, size = "md", className = "" }) => {
+  const [imgError, setImgError] = useState(false); // New state to track if image fails
+  
+  const sizeClasses = {
+    xs: "w-6 h-6 text-[10px]",
+    sm: "w-8 h-8 text-xs",
+    md: "w-10 h-10 text-sm",
+    lg: "w-16 h-16 text-xl",
+    xl: "w-32 h-32 text-4xl"
+  };
+
+  // 1. Get Image URL
+  const imageUrl = user?.profilePicture?.id 
+    ? api.getFileUrl(user.profilePicture.id) 
+    : null;
+
+  // 2. Robust Initials Logic
+  // Tries: First Name > Username > Email > Fallback
+  const getInitials = () => {
+    if (!user) return "?";
+    
+    if (user.firstName) {
+        return `${user.firstName[0]}${user.lastName?.[0] || ''}`.toUpperCase();
+    }
+    
+    if (user.username) {
+        return user.username.substring(0, 2).toUpperCase();
+    }
+    
+    if (user.email) {
+        return user.email.substring(0, 2).toUpperCase();
+    }
+    
+    return "?";
+  };
+
+  return (
+    <div className={`relative inline-block rounded-full overflow-hidden bg-zinc-100 border border-zinc-200 shrink-0 ${sizeClasses[size]} ${className}`}>
+      
+      {/* Show Image only if URL exists AND no error occurred */}
+      {imageUrl && !imgError ? (
+        <img 
+          src={imageUrl} 
+          alt="Profile" 
+          className="w-full h-full object-cover"
+          onError={() => setImgError(true)} 
+        />
+      ) : (
+        // Fallback: Initials (Always visible if image missing/broken)
+        <div className="absolute inset-0 flex items-center justify-center font-bold text-zinc-500 bg-zinc-100 select-none">
+          {getInitials()}
+        </div>
+      )}
+    </div>
+  );
+};
