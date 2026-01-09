@@ -236,42 +236,43 @@ export const getAllUsers = async (req, res, next) => {
 
 ## 8. Real-time Functionality with Socket.IO
 
-The Socket.IO server provides real-time updates to connected clients.
+The Socket.IO server provides real-time updates to connected clients. The key principle of our architecture is that **event emission is automated and declarative, not manual**.
 
--   **`socket.js`**: Initializes the Socket.IO server and attaches it to the Express HTTP server. It handles initial connection events and sets up listeners for client actions like `subscribe_resource`.
--   **`socket-store.js`**: A simple in-memory store to map a `userId` to their active `socket.id`(s). This allows us to find and target specific users.
+-   **`socket.js`**: Initializes the Socket.IO server and attaches it to the Express HTTP server. It handles the initial connection handshake and security for the `subscribe_resource` event.
+-   **`socket-store.js`**: A simple in-memory store to get a reference to the global `io` instance.
+-   **`models/hooks.js`**: Contains "hook factories" that create reusable Sequelize hooks. These hooks automatically emit socket events when model instances are created, updated, or deleted.
+-   **`models/index.js`**: The central registry where the model hooks from `hooks.js` are attached to the actual Sequelize models.
 
-### Emitting Events from Controllers
-To ensure data consistency, events are emitted **after** a database operation is successful. The `io` instance is attached to the Express `app` object and can be accessed via `req.app.get('io')`.
+### The Automated Hook Strategy
+We **do not** manually emit socket events from controllers (e.g., `req.app.get('io').emit(...)`). This practice is error-prone and leads to inconsistent event logic.
 
-**Convention:** Event names follow the pattern `{resource_name}_{action}`. This is critical for the client-side `useRealtimeResource` hook.
+Instead, the entire real-time emission process is handled by Sequelize hooks:
 
--   `users_created`, `users_updated`, `users_deleted`
--   `donations_created`, `donations_updated`, `donations_deleted`
+1.  **Controller/Service Action**: A service function saves, updates, or deletes a model instance (e.g., `await user.save()`).
+2.  **Sequelize Hook Trigger**: After the database operation succeeds, Sequelize triggers the appropriate hook (e.g., `afterSave`, `afterDestroy`).
+3.  **Centralized Emission**: The hook function, defined in `models/hooks.js` and attached in `models/index.js`, executes. It gets the `io` instance and emits the event to the correct room(s).
 
-**Example: Emitting an "updated" event**
+**Example: The `User` model's `afterSave` hook**
+
 ```javascript
-// In user.controller.js
-export const updateUser = async (req, res, next) => {
-  try {
-    const { id } = req.params;
-    const [updatedCount, updatedUsers] = await userService.update(id, req.body);
-    
-    if (updatedCount === 0) {
-      return res.status(404).json({ message: 'User not found' });
-    }
+// In models/index.js
+// This single line handles all create and update events for users.
+db.User.afterSave(notifyMutableResource('users'));
 
-    // --- EMIT SOCKET EVENT ---
-    const io = req.app.get('io');
-    // Broadcast to the 'users' room that a user was updated.
-    // The payload is the updated user data.
-    io.to('users').emit('users_updated', updatedUsers[0]); 
-    // ---
+// In models/hooks.js
+// The 'notifyMutableResource' factory contains the logic to emit to rooms.
+export const notifyMutableResource = (resourceName) => async (instance) => {
+  const eventName = instance.isNewRecord ? `${resourceName}_created` : `${resourceName}_updated`;
+  
+  // Emit to the generic room (for lists)
+  safeEmit(resourceName, eventName, instance.toJSON());
 
-    res.status(200).json(updatedUsers[0]);
-  } catch (error) {
-    next(error);
+  // Also emit to the specific room (for single record views)
+  if (!instance.isNewRecord) {
+    const recordRoom = `${resourceName}_${instance.id}`;
+    safeEmit(recordRoom, eventName, instance.toJSON());
   }
 };
 ```
-This ensures that all clients subscribed to the `users` resource will see the update in real-time without needing to refresh the page.
+
+This declarative approach ensures that **every** change to a hooked model, regardless of where it originates in the codebase, will reliably trigger a real-time event. This makes the system robust and easy to maintain. Developers only need to attach the hook once in `models/index.js` and can trust that the real-time updates will happen automatically.

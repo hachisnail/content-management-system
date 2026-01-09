@@ -1,7 +1,7 @@
-import React from "react";
-import { Badge, Avatar } from "../../../../components/UI";
-import { Activity, Shield } from "lucide-react";
-import { formatTimeAgo } from "../../../../utils/time";
+import React from 'react';
+import { Badge, Avatar } from '../../../../components/UI';
+import { Activity, Shield } from 'lucide-react';
+import { formatTimeAgo } from '../../../../utils/time';
 
 export const UserIdentity = ({ user }) => (
   <div className="flex items-center gap-3">
@@ -11,7 +11,6 @@ export const UserIdentity = ({ user }) => (
         {user.firstName} {user.lastName}
       </div>
       <div className="flex flex-col">
-        {/* NEW: Display Username */}
         <span className="text-[10px] text-zinc-500 font-bold">
           @{user.username}
         </span>
@@ -23,12 +22,26 @@ export const UserIdentity = ({ user }) => (
   </div>
 );
 
-export const UserRole = ({ user }) => (
-  <Badge variant={user.role?.includes("admin") ? "dark" : "neutral"}>
-    <Shield size={10} className="mr-1" />
-    {Array.isArray(user.role) ? user.role[0] : user.role}
-  </Badge>
-);
+// FIX: Updated to support multiple roles
+export const UserRole = ({ user }) => {
+  // Ensure roles is always an array
+  const roles = Array.isArray(user.role) ? user.role : [user.role];
+
+  return (
+    <div className="flex flex-wrap gap-1">
+      {roles.map((role, index) => (
+        <Badge 
+          key={index} 
+          variant={role?.includes('admin') ? 'dark' : 'neutral'}
+          className="capitalize whitespace-nowrap"
+        >
+          <Shield size={10} className="mr-1" />
+          {role ? role.replace(/_/g, ' ') : 'N/A'}
+        </Badge>
+      ))}
+    </div>
+  );
+};
 
 export const UserStatus = ({ user, now }) => {
   const INACTIVE_THRESHOLD_MS = 5 * 60 * 1000;

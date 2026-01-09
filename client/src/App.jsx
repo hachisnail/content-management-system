@@ -1,16 +1,17 @@
 import React from 'react';
-import { BrowserRouter } from 'react-router-dom';
+import { RouterProvider } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
-import { AppRoutes } from './routes.jsx';
+import { ConfigProvider } from './context/ConfigContext';
+import { router } from './router'; // Import the JSX-defined router
 import './index.css';
 
 function App() {
   return (
-    <BrowserRouter>
-      <AuthProvider>
-        <AppRoutes />
-      </AuthProvider>
-    </BrowserRouter>
+    <AuthProvider>
+      <ConfigProvider>
+        <RouterProvider router={router} />
+      </ConfigProvider>
+    </AuthProvider>
   );
 }
 

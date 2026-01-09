@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import socket from '../../socket';
+import socket  from '../../../socket'
 
 function TestDashboard() {
   const [isConnected, setIsConnected] = useState(socket.connected);

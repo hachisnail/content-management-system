@@ -1,13 +1,13 @@
 import React, { useState } from 'react';
-import api from '../../api';
-import { useConfig } from '../../context/ConfigContext';
+import api from '../../../api';
+import { useConfig } from '../../../context/ConfigContext';
 import { 
   Button, 
   Input, 
   Alert, 
   Badge, 
   Checkbox 
-} from '../../components/UI';
+} from '../../../components/UI';
 import { UserPlus, Mail, Shield, Check } from 'lucide-react';
 
 function AdminTest() {

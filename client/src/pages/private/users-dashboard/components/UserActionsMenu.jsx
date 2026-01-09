@@ -1,33 +1,44 @@
-import React from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Dropdown, Button } from '../../../../components/UI';
-import { MoreVertical, Eye, Power, Ban, Lock, CheckCircle } from 'lucide-react';
-import { encodeId } from '../../../../utils/idEncoder';
+import React from "react";
+import { useNavigate } from "react-router-dom";
+import { Dropdown, Button } from "../../../../components/UI";
+import { MoreVertical, Eye, Power, Ban, Lock, CheckCircle } from "lucide-react";
+import { encodeId } from "../../../../utils/idEncoder";
 
-const UserActionsMenu = ({ 
-  user, 
-  currentUser, 
-  onDisconnect, 
-  onDisable, 
-  onEnable, // <--- NEW PROP
-  hasPermission, 
-  PERMISSIONS 
+const UserActionsMenu = ({
+  user,
+  currentUser,
+  onDisconnect,
+  onDisable,
+  onEnable,
+  hasPermission,
+  PERMISSIONS,
 }) => {
   const navigate = useNavigate();
-  
-  const isSuperAdmin = currentUser?.role?.includes('super_admin');
-  const isAdmin = currentUser?.role?.includes('admin');
-  const targetIsSuperAdmin = user.role?.includes('super_admin');
 
-  const canDisconnect = hasPermission(currentUser, PERMISSIONS.DISCONNECT_USERS) && 
-                        !(isAdmin && targetIsSuperAdmin);
+  const isAdmin = currentUser?.role?.includes("admin");
+  const targetIsSuperAdmin = user.role?.includes("super_admin");
+
+  // Logic: Can disconnect IF (has permission) AND (target is not a protected super admin unless I am also one)
+  // Simplified logic: If I have the permission, I can try. The server will ultimately reject if I can't.
+  const canDisconnect =
+    hasPermission(currentUser, PERMISSIONS.DISCONNECT_USERS) &&
+    !(isAdmin && targetIsSuperAdmin); // Simple safety check
+
+  const canManageStatus = hasPermission(
+    currentUser,
+    PERMISSIONS.MANAGE_USER_STATUS
+  );
 
   return (
     <div className="flex justify-end pr-2">
-      <Dropdown 
+      <Dropdown
         align="right"
         trigger={
-          <Button variant="ghost" size="icon" className="rounded-full hover:bg-zinc-100">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="rounded-full hover:bg-zinc-100"
+          >
             <MoreVertical size={18} className="text-zinc-400" />
           </Button>
         }
@@ -39,25 +50,31 @@ const UserActionsMenu = ({
           >
             <Eye size={14} /> View Profile
           </button>
-          
+
           <div className="h-px bg-zinc-100 my-1" />
 
           {/* FORCE DISCONNECT */}
           {hasPermission(currentUser, PERMISSIONS.DISCONNECT_USERS) && (
             <button
               onClick={() => onDisconnect(user.id)}
-              disabled={!canDisconnect || !user.isOnline || user.id === currentUser.id}
+              disabled={
+                !canDisconnect || !user.isOnline || user.id === currentUser.id
+              }
               className="w-full text-left px-4 py-2.5 text-sm text-zinc-600 hover:bg-zinc-50 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {targetIsSuperAdmin && isAdmin ? <Lock size={14} /> : <Power size={14} />}
+              {targetIsSuperAdmin && isAdmin ? (
+                <Lock size={14} />
+              ) : (
+                <Power size={14} />
+              )}
               Force Disconnect
             </button>
           )}
 
-          {/* TOGGLE ACCOUNT STATUS (Super Admin Only) */}
-          {isSuperAdmin && (
+          {/* TOGGLE ACCOUNT STATUS */}
+          {canManageStatus && (
             <>
-              {user.status === 'disabled' ? (
+              {user.status === "disabled" ? (
                 // ENABLE BUTTON
                 <button
                   onClick={() => onEnable(user.id)}
@@ -69,7 +86,7 @@ const UserActionsMenu = ({
                 // DISABLE BUTTON
                 <button
                   onClick={() => onDisable(user.id)}
-                  disabled={user.id === currentUser.id}
+                  disabled={user.id === currentUser.id} // Cannot ban self
                   className="w-full text-left px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2 disabled:opacity-50"
                 >
                   <Ban size={14} /> Disable Account

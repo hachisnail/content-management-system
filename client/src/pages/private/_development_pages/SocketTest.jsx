@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import socket from '../socket';
-import api from '../api'; // Import API
-import { useAuth } from '../context/AuthContext';
-import { useRealtimeResource } from '../hooks/useRealtimeResource';
-import { useConfig } from '../context/ConfigContext';
-import { Button, Input, Badge } from '../components/UI';
+import socket from '../../../socket';
+import api from '../../../api'; // Import API
+import { useAuth } from '../../../context/AuthContext';
+import { useRealtimeResource } from '../../../hooks/useRealtimeResource';
+import { useConfig } from '../../../context/ConfigContext';
+import { Button, Input, Badge } from '../../../components/UI';
 import { Terminal, Wifi, WifiOff, ShieldAlert, Send, UserMinus, Layers, Trash2 } from 'lucide-react';
 
 const SocketTest = () => {

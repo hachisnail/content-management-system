@@ -11,43 +11,108 @@ export const ROLES = {
 
 // 2. PERMISSIONS: The list of distinct actions
 export const PERMISSIONS = {
-  // Navigation
+  // --- CORE ACCESS ---
   VIEW_DASHBOARD: 'view_dashboard',
+
+  // --- SYSTEM MONITORING & TOOLS ---
   VIEW_MONITOR: 'view_monitor',
   VIEW_AUDIT_LOGS: 'view_audit_logs',
   VIEW_ADMIN_TOOLS: 'view_admin_tools',
-  VIEW_SOCKET_TEST: 'view_socket_test',
+  VIEW_SOCKET_TEST: 'view_socket_test', // Tech/Dev access
 
-  // Actions
-  MANAGE_USERS: 'manage_users',
-  DISCONNECT_USERS: 'disconnect_users',
-  MANAGE_SYSTEM: 'manage_system',
+  // --- USER MANAGEMENT ---
+  VIEW_USERS: 'view_users', // See the directory
+  MANAGE_USERS: 'manage_users', // Edit profiles (basic)
+  CREATE_USERS: 'create_users', // Invite new users
+  MANAGE_USER_ROLES: 'manage_user_roles', // Promote/Demote (Critical)
+  MANAGE_USER_STATUS: 'manage_user_status', // Enable/Disable accounts
+  DISCONNECT_USERS: 'disconnect_users', // Force logout
+
+  // --- DONATIONS & INVENTORY ---
   CREATE_DONATION: 'create_donation',
+  VIEW_DONATIONS: 'view_donations',
+  PROCESS_DONATIONS: 'process_donations', // Approve/Reject/Archive
+  MANAGE_INVENTORY: 'manage_inventory', // CRUD on Inventory Items
+
+  // --- CONTENT (CMS) ---
+  VIEW_ARTICLES: 'view_articles',
+  MANAGE_ARTICLES: 'manage_articles', // Create/Edit/Publish
+
+  // --- BUSINESS LOGIC ---
+  VIEW_ACQUISITIONS: 'view_acquisitions',
+  MANAGE_ACQUISITIONS: 'manage_acquisitions',
+
+  VIEW_APPOINTMENTS: 'view_appointments',
+  MANAGE_APPOINTMENTS: 'manage_appointments',
 };
 
 // 3. ROLE_DEFINITIONS: Who can do what
 export const ROLE_DEFINITIONS = {
-  [ROLES.SUPER_ADMIN]: Object.values(PERMISSIONS), 
-  
+  // SUPER ADMIN: God Mode (Everything)
+  [ROLES.SUPER_ADMIN]: Object.values(PERMISSIONS),
+
+  // ADMIN: Operational control, but cannot change roles or access raw server logs unless specified
   [ROLES.ADMIN]: [
+    // Core
     PERMISSIONS.VIEW_DASHBOARD,
     PERMISSIONS.VIEW_MONITOR,
     PERMISSIONS.VIEW_AUDIT_LOGS,
     PERMISSIONS.VIEW_SOCKET_TEST,
-    PERMISSIONS.CREATE_DONATION,
+
+    // Users
+    PERMISSIONS.VIEW_USERS,
     PERMISSIONS.MANAGE_USERS,
-    PERMISSIONS.DISCONNECT_USERS
+    PERMISSIONS.CREATE_USERS,
+    PERMISSIONS.MANAGE_USER_STATUS, // Admins can disable, but maybe not change roles
+    PERMISSIONS.DISCONNECT_USERS,
+
+    // Domains
+    PERMISSIONS.VIEW_DONATIONS,
+    PERMISSIONS.PROCESS_DONATIONS,
+    PERMISSIONS.MANAGE_INVENTORY,
+    PERMISSIONS.VIEW_ARTICLES,
+    PERMISSIONS.VIEW_APPOINTMENTS,
+    PERMISSIONS.VIEW_ACQUISITIONS,
   ],
-  
+
+  // INVENTORY MANAGER: Focused on items and donations
   [ROLES.INVENTORY_MANAGER]: [
     PERMISSIONS.VIEW_DASHBOARD,
     PERMISSIONS.CREATE_DONATION,
+    PERMISSIONS.VIEW_DONATIONS,
+    PERMISSIONS.PROCESS_DONATIONS,
+    PERMISSIONS.MANAGE_INVENTORY,
   ],
 
-  [ROLES.ACQUISITIONS_MANAGER]: [PERMISSIONS.VIEW_DASHBOARD],
-  [ROLES.ARTICLES_MANAGER]: [PERMISSIONS.VIEW_DASHBOARD],
-  [ROLES.APPOINTMENTS_MANAGER]: [PERMISSIONS.VIEW_DASHBOARD],
-  [ROLES.VIEWER]: [PERMISSIONS.VIEW_DASHBOARD],
+  // ACQUISITIONS MANAGER
+  [ROLES.ACQUISITIONS_MANAGER]: [
+    PERMISSIONS.VIEW_DASHBOARD,
+    PERMISSIONS.VIEW_ACQUISITIONS,
+    PERMISSIONS.MANAGE_ACQUISITIONS,
+    PERMISSIONS.VIEW_DONATIONS, // Likely needs to see donations to acquire them
+  ],
+
+  // ARTICLES MANAGER (CMS)
+  [ROLES.ARTICLES_MANAGER]: [
+    PERMISSIONS.VIEW_DASHBOARD,
+    PERMISSIONS.VIEW_ARTICLES,
+    PERMISSIONS.MANAGE_ARTICLES,
+  ],
+
+  // APPOINTMENTS MANAGER
+  [ROLES.APPOINTMENTS_MANAGER]: [
+    PERMISSIONS.VIEW_DASHBOARD,
+    PERMISSIONS.VIEW_APPOINTMENTS,
+    PERMISSIONS.MANAGE_APPOINTMENTS,
+    PERMISSIONS.VIEW_USERS, // Might need to see who they are meeting
+  ],
+
+  // VIEWER: Read-only access
+  [ROLES.VIEWER]: [
+    PERMISSIONS.VIEW_DASHBOARD,
+    PERMISSIONS.VIEW_ARTICLES, // Public news
+    // Can generally see public info, but no management actions
+  ],
 };
 
 // Helper for backend validation

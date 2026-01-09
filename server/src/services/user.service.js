@@ -3,9 +3,267 @@ import bcrypt from 'bcrypt';
 import crypto from 'crypto';
 import { sendMail } from './mailer.js';
 import { logOperation } from './logger.js';
-import { getAllowedRoles } from '../config/permissions.js'; 
+import {
+  getAllowedRoles,
+  ROLE_DEFINITIONS,
+  PERMISSIONS,
+} from '../config/permissions.js';
 import { buildQueryOptions } from '../utils/queryBuilder.js';
 
+// Helper: Check permission inside service
+const checkPerm = (userRoles, permission) => {
+  if (!userRoles) return false;
+  const roles = Array.isArray(userRoles) ? userRoles : [userRoles];
+  if (roles.includes('super_admin')) return true;
+  return roles.some((role) =>
+    (ROLE_DEFINITIONS[role] || []).includes(permission),
+  );
+};
+
+// ... (keep getInvitationTemplate, createUser, completeRegistration as is) ...
+
+export const updateUser = async (id, updateData, initiatorEmail) => {
+  const user = await db.User.findByPk(id);
+  if (!user) throw new Error('User not found');
+
+  const initiator = await db.User.findOne({ where: { email: initiatorEmail } });
+  if (!initiator) throw new Error('Initiator not found');
+
+  // --- PERMISSION CHECKING ---
+  const iRoles = initiator.role;
+  const isSelf = user.id === initiator.id;
+
+  const canManageUsers = checkPerm(iRoles, PERMISSIONS.MANAGE_USERS);
+  const canManageRoles = checkPerm(iRoles, PERMISSIONS.MANAGE_USER_ROLES);
+  const canManageStatus = checkPerm(iRoles, PERMISSIONS.MANAGE_USER_STATUS);
+  const isSuperAdmin = iRoles.includes('super_admin');
+
+  // 1. Basic Fields (Self OR Manager)
+  const basicFields = [
+    'firstName',
+    'lastName',
+    'middleName',
+    'contactNumber',
+    'birthDay',
+  ];
+  let allowedFields = [];
+
+  if (isSelf || canManageUsers) {
+    allowedFields = [...basicFields];
+  }
+
+  // 2. Sensitive Fields (Specific Permissions)
+  if (canManageRoles) allowedFields.push('role');
+  if (canManageStatus) allowedFields.push('status');
+
+  // 3. Identifiers (Super Admin Only)
+  if (isSuperAdmin) {
+    allowedFields.push('email', 'username');
+    // Ensure Super Admin has everything
+    allowedFields = [
+      ...new Set([...allowedFields, ...basicFields, 'role', 'status']),
+    ];
+  }
+
+  const beforeState = user.toJSON();
+  delete beforeState.password;
+  delete beforeState.socketId;
+
+  // --- APPLY UPDATES ---
+
+  // Normalize 'roles' input to 'role'
+  if (updateData.roles && !updateData.role) updateData.role = updateData.roles;
+
+  allowedFields.forEach((field) => {
+    if (updateData[field] !== undefined) {
+      user[field] = updateData[field];
+    }
+  });
+
+  // Validate Roles if changed
+  if (user.changed('role')) {
+    const rawRole = user.getDataValue('role');
+    const roleArray = Array.isArray(rawRole) ? rawRole : [rawRole];
+    const validRoleList = getAllowedRoles();
+
+    // Safety: Ensure valid roles
+    const invalidRoles = roleArray.filter((r) => !validRoleList.includes(r));
+    if (invalidRoles.length > 0)
+      throw new Error(`Invalid roles: ${invalidRoles.join(', ')}`);
+
+    user.setDataValue('role', roleArray);
+  }
+
+  user.last_active = new Date(); // Touch activity
+
+  await user.save();
+
+  await logOperation({
+    description: `User profile updated for ${user.email}`,
+    operation: 'UPDATE',
+    affectedResource: `user:${user.id}`,
+    beforeState,
+    afterState: { ...user.toJSON(), password: undefined, socketId: undefined },
+    initiator: initiatorEmail,
+  });
+
+  return findById(user.id);
+};
+
+// ... (keep deleteUser, findById, findAll as is) ...
+// (Ensure existing exports are maintained)
+export const deleteUser = async (id, initiatorEmail) => {
+  const user = await db.User.findByPk(id);
+  if (!user) throw new Error('User not found');
+
+  const userEmail = user.email;
+  const beforeState = user.toJSON();
+
+  await user.destroy();
+
+  await logOperation({
+    description: `User/Invitation revoked for ${userEmail}`,
+    operation: 'DELETE',
+    affectedResource: `user:${id}`,
+    beforeState,
+    afterState: null,
+    initiator: initiatorEmail,
+  });
+
+  return true;
+};
+
+export const findById = async (id) => {
+  return await db.User.findByPk(id, {
+    attributes: { exclude: ['password', 'socketId', 'registrationToken'] },
+    include: [
+      {
+        model: db.File,
+        as: 'profilePicture',
+        attributes: ['id', 'fileName', 'mimeType'],
+      },
+    ],
+  });
+};
+
+export const findAll = async (queryParams = {}) => {
+  const searchableFields = ['firstName', 'lastName', 'email', 'username'];
+  const options = buildQueryOptions(queryParams, searchableFields);
+
+  try {
+    const { count, rows } = await db.User.findAndCountAll({
+      ...options,
+      attributes: { exclude: ['password', 'registrationToken'] },
+      subQuery: false,
+      distinct: true,
+      include: [
+        {
+          model: db.File,
+          as: 'profilePicture',
+          attributes: ['id', 'fileName', 'relatedType'],
+          required: false,
+        },
+      ],
+    });
+
+    return { count, rows };
+  } catch (error) {
+    console.error('[User Service] Error fetching users:', error);
+    throw error;
+  }
+};
+
+export const createUser = async ({
+  email,
+  firstName,
+  lastName,
+  middleName,
+  roles,
+  initiatorEmail,
+}) => {
+  const existingUser = await db.User.findOne({ where: { email } });
+  if (existingUser) throw new Error('User already exists');
+
+  const validRoleList = getAllowedRoles();
+  const assignedRoles = Array.isArray(roles) ? roles : [roles];
+
+  const invalidRoles = assignedRoles.filter((r) => !validRoleList.includes(r));
+  if (invalidRoles.length > 0)
+    throw new Error(`Invalid roles: ${invalidRoles.join(', ')}`);
+
+  const registrationToken = crypto.randomBytes(32).toString('hex');
+  const EXPIRE_HOURS = 48;
+  const invitationExpiresAt = new Date(
+    Date.now() + EXPIRE_HOURS * 60 * 60 * 1000,
+  );
+
+  const newUser = await db.User.create({
+    email,
+    firstName,
+    lastName,
+    middleName,
+    role: assignedRoles,
+    registrationToken,
+    invitationExpiresAt,
+    status: 'pending',
+  });
+
+  await logOperation({
+    description: 'Admin created a new user invitation.',
+    operation: 'CREATE',
+    affectedResource: `user:${newUser.id}`,
+    beforeState: null,
+    afterState: newUser.toJSON(),
+    initiator: initiatorEmail,
+  });
+
+  const registrationLink = `http://localhost:5173/complete-registration?token=${registrationToken}`;
+
+  await sendMail({
+    to: email,
+    subject: 'Action Required: Complete your MASCD Registration',
+    html: getInvitationTemplate(registrationLink, firstName),
+  });
+
+  const userJson = newUser.toJSON();
+  delete userJson.password;
+  delete userJson.registrationToken;
+  return userJson;
+};
+
+export const completeRegistration = async (
+  token,
+  { password, username, contactNumber, birthDay },
+) => {
+  const user = await db.User.findOne({ where: { registrationToken: token } });
+  if (!user) throw new Error('Invalid registration token');
+
+  const beforeState = user.toJSON();
+  const hashedPassword = await bcrypt.hash(password, 10);
+
+  user.password = hashedPassword;
+  user.username = username;
+  user.contactNumber = contactNumber;
+  user.birthDay = birthDay;
+  user.status = 'active';
+  user.registrationToken = null;
+
+  await user.save();
+
+  await logOperation({
+    description: 'User completed their registration.',
+    operation: 'UPDATE',
+    affectedResource: `user:${user.id}`,
+    beforeState,
+    afterState: user.toJSON(),
+    initiator: user.email,
+  });
+
+  const userJson = user.toJSON();
+  delete userJson.password;
+  delete userJson.registrationToken;
+  return userJson;
+};
 
 const getInvitationTemplate = (link, firstName) => `
 <!DOCTYPE html>
@@ -44,192 +302,3 @@ const getInvitationTemplate = (link, firstName) => `
 </body>
 </html>
 `;
-// --- CREATE ---
-// Updated to accept initiatorEmail from Controller
-export const createUser = async ({ email, firstName, lastName, middleName, roles, initiatorEmail }) => {
-  const existingUser = await db.User.findOne({ where: { email } });
-  if (existingUser) throw new Error('User already exists');
-
-  const validRoleList = getAllowedRoles(); 
-  const assignedRoles = Array.isArray(roles) ? roles : [roles];
-  
-  const invalidRoles = assignedRoles.filter(r => !validRoleList.includes(r));
-  if (invalidRoles.length > 0) throw new Error(`Invalid roles: ${invalidRoles.join(', ')}`);
-
-  const registrationToken = crypto.randomBytes(32).toString('hex');
-  const EXPIRE_HOURS = 48;
-  const invitationExpiresAt = new Date(Date.now() + EXPIRE_HOURS * 60 * 60 * 1000);
-
-  const newUser = await db.User.create({
-    email, 
-    firstName, 
-    lastName, 
-    middleName, 
-    role: assignedRoles, 
-    registrationToken,
-    invitationExpiresAt, 
-    status: 'pending'
-  });
-
-  await logOperation({
-    description: 'Admin created a new user invitation.',
-    operation: 'CREATE',
-    affectedResource: `user:${newUser.id}`,
-    beforeState: null,
-    afterState: newUser.toJSON(),
-    initiator: initiatorEmail, 
-  });
-
-  const registrationLink = `http://localhost:5173/complete-registration?token=${registrationToken}`;
-  
-  // FIX: Use the new HTML template
-  await sendMail({
-    to: email,
-    subject: 'Action Required: Complete your MASCD Registration',
-    html: getInvitationTemplate(registrationLink, firstName),
-  });
-
-  const userJson = newUser.toJSON();
-  delete userJson.password;
-  delete userJson.registrationToken;
-  return userJson;
-};
-
-export const completeRegistration = async (token, { password, username, contactNumber, birthDay }) => {
-  const user = await db.User.findOne({ where: { registrationToken: token } });
-  if (!user) throw new Error('Invalid registration token');
-
-  const beforeState = user.toJSON();
-  const hashedPassword = await bcrypt.hash(password, 10);
-
-  user.password = hashedPassword;
-  user.username = username; // <--- This sets it initially (already present)
-  user.contactNumber = contactNumber;
-  user.birthDay = birthDay;
-  user.status = 'active';
-  user.registrationToken = null;
-
-  await user.save();
-
-  await logOperation({
-    description: 'User completed their registration.',
-    operation: 'UPDATE',
-    affectedResource: `user:${user.id}`,
-    beforeState,
-    afterState: user.toJSON(),
-    initiator: user.email, 
-  });
-
-  const userJson = user.toJSON();
-  delete userJson.password;
-  delete userJson.registrationToken;
-  return userJson;
-};
-
-export const updateUser = async (id, updateData, initiatorEmail) => {
-  const user = await db.User.findByPk(id);
-  if (!user) throw new Error('User not found');
-
-  const initiator = await db.User.findOne({ where: { email: initiatorEmail } });
-  if (!initiator) throw new Error('Initiator not found');
-
-  const initiatorRoles = Array.isArray(initiator.role) ? initiator.role : [initiator.role];
-  const isSuperAdmin = initiatorRoles.includes('super_admin');
-
-  const beforeState = user.toJSON();
-  delete beforeState.password;
-  delete beforeState.socketId;
-
-  // 1. Standard Fields (Editable by user themselves)
-  const basicFields = ['firstName', 'lastName', 'middleName', 'contactNumber', 'birthDay'];
-  let allowedFields = [...basicFields];
-
-  // 2. Super Admin Fields (Privileged)
-  if (isSuperAdmin) {
-    allowedFields.push('email');
-    allowedFields.push('status');
-    allowedFields.push('username'); // <--- ADDED: Super Admin can modify username
-  }
-
-  allowedFields.forEach(field => {
-    if (updateData[field] !== undefined) {
-      user[field] = updateData[field];
-    }
-  });
-
-  user.last_active = new Date();
-
-  await user.save();
-
-  await logOperation({
-    description: `User profile updated for ${user.email}`,
-    operation: 'UPDATE',
-    affectedResource: `user:${user.id}`, 
-    beforeState,
-    afterState: { ...user.toJSON(), password: undefined, socketId: undefined },
-    initiator: initiatorEmail, 
-  });
-
-  return findById(user.id);
-};
-
-// --- DELETE (Revoke) - [NEW] ---
-export const deleteUser = async (id, initiatorEmail) => {
-  const user = await db.User.findByPk(id);
-  if (!user) throw new Error('User not found');
-
-  const userEmail = user.email;
-  const beforeState = user.toJSON();
-
-  // Hard Delete
-  await user.destroy();
-
-  // Log Deletion
-  await logOperation({
-    description: `User/Invitation revoked for ${userEmail}`,
-    operation: 'DELETE',
-    affectedResource: `user:${id}`,
-    beforeState, // Keep record of what was deleted
-    afterState: null,
-    initiator: initiatorEmail,
-  });
-  
-  return true;
-};
-
-// --- READ ---
-export const findById = async (id) => {
-  return await db.User.findByPk(id, {
-    attributes: { exclude: ['password', 'socketId', 'registrationToken'] },
-    include: [{
-      model: db.File,
-      as: 'profilePicture',
-      attributes: ['id', 'fileName', 'mimeType']
-    }]
-  });
-};
-
-export const findAll = async (queryParams = {}) => {
-  const searchableFields = ['firstName', 'lastName', 'email', 'username'];
-  const options = buildQueryOptions(queryParams, searchableFields);
-
-  try {
-    const { count, rows } = await db.User.findAndCountAll({
-      ...options,
-      attributes: { exclude: ['password', 'registrationToken'] },
-      subQuery: false, 
-      distinct: true, 
-      include: [{
-        model: db.File,
-        as: 'profilePicture',
-        attributes: ['id', 'fileName', 'relatedType'],
-        required: false
-      }]
-    });
-
-    return { count, rows };
-  } catch (error) {
-    console.error('[User Service] Error fetching users:', error);
-    throw error;
-  }
-};

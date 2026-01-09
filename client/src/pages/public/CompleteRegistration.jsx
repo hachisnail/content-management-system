@@ -1,109 +1,223 @@
-// client/src/pages/public/CompleteRegistration.jsx
 import React, { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import api from '../../api';
+import { Button, Input, Card, Alert } from '../../components/UI';
+import { 
+  Lock, 
+  Phone, 
+  Calendar, 
+  AtSign, 
+  ArrowRight,
+  AlertTriangle 
+} from 'lucide-react';
 
 function CompleteRegistration() {
   const [searchParams] = useSearchParams();
-  const [password, setPassword] = useState('');
-  const [username, setUsername] = useState('');
-  const [contactNumber, setContactNumber] = useState('');
-  const [birthDay, setBirthDay] = useState('');
-  const [message, setMessage] = useState('');
-  const [error, setError] = useState('');
-  const [token, setToken] = useState(null);
   const navigate = useNavigate();
+  
+  const [formData, setFormData] = useState({
+    username: '',
+    password: '',
+    confirmPassword: '',
+    contactNumber: '',
+    birthDay: '',
+  });
+
+  const [status, setStatus] = useState({ type: null, message: '' });
+  const [loading, setLoading] = useState(false);
+  const [token, setToken] = useState(null);
 
   useEffect(() => {
     let tokenFromUrl = searchParams.get('token');
     if (tokenFromUrl) {
-      // Remove trailing backslash if it exists
       if (tokenFromUrl.endsWith('\\')) {
         tokenFromUrl = tokenFromUrl.slice(0, -1);
       }
       setToken(tokenFromUrl);
     } else {
-      setError('Registration token not found in URL.');
+      setStatus({ type: 'error', message: 'Invalid or missing registration token.' });
     }
   }, [searchParams]);
 
+  const handleChange = (e) => {
+    setFormData({ ...formData, [e.target.name]: e.target.value });
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setError('');
-    setMessage('');
+    setStatus({ type: null, message: '' });
+
+    if (formData.password !== formData.confirmPassword) {
+      setStatus({ type: 'error', message: 'Passwords do not match.' });
+      return;
+    }
+
+    setLoading(true);
+
     try {
-      const response = await api.post(`/users/complete-registration?token=${token}`, {
-        password,
-        username,
-        contactNumber,
-        birthDay,
+      await api.post(`/users/complete-registration?token=${token}`, {
+        username: formData.username,
+        password: formData.password,
+        contactNumber: formData.contactNumber,
+        birthDay: formData.birthDay,
       });
-      setMessage(response.message);
+
+      setStatus({ type: 'success', message: 'Registration successful! Redirecting to login...' });
+      
       setTimeout(() => {
-        navigate('/login-test');
-      }, 3000); // Redirect to login after 3 seconds
+        navigate('/auth/login');
+      }, 2000);
     } catch (err) {
-      setError(err.message || 'An error occurred.');
+      setStatus({ type: 'error', message: err.message || 'Registration failed. Please try again.' });
+      setLoading(false);
     }
   };
 
-  if (!token && !error) {
-    return <div>Loading...</div>;
+  // --- ERROR VIEW (Clean Slate) ---
+  // If the token is missing or invalid, show ONLY this.
+  if (!token && status.type === 'error') {
+    return (
+      <div className="min-h-screen bg-zinc-50 flex items-center justify-center p-4">
+        <div className="max-w-md w-full text-center space-y-4">
+          <div className="mx-auto w-16 h-16 bg-red-100 rounded-full flex items-center justify-center">
+            <AlertTriangle className="text-red-600 w-8 h-8" />
+          </div>
+          <h2 className="text-xl font-bold text-zinc-900">Access Denied</h2>
+          <Alert type="error" message={status.message} />
+          <Button variant="ghost" onClick={() => navigate('/auth/login')}>
+            Return to Login
+          </Button>
+        </div>
+      </div>
+    );
   }
 
+  // --- NORMAL VIEW ---
+  // If valid, show the full registration UI
   return (
-    <div className="p-6 bg-white shadow-md rounded-lg">
-      <h2 className="text-2xl font-bold mb-4">Complete Your Registration</h2>
-      {error && <p className="mt-4 text-sm text-red-600">{error}</p>}
-      {message && <p className="mt-4 text-sm text-green-600">{message}</p>}
-      {!message && (
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Username</label>
-            <input
-              type="text"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-              required
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Password</label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-              required
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Contact Number</label>
-            <input
-              type="text"
-              value={contactNumber}
-              onChange={(e) => setContactNumber(e.target.value)}
-              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Birth Day</label>
-            <input
-              type="date"
-              value={birthDay}
-              onChange={(e) => setBirthDay(e.target.value)}
-              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-            />
-          </div>
-          <button
-            type="submit"
-            className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-          >
-            Complete Registration
-          </button>
-        </form>
-      )}
+    <div className="min-h-screen bg-gray-100 flex flex-col justify-center py-12 sm:px-6 lg:px-8 animate-in fade-in duration-500">
+      
+      {/* Header Section */}
+      <div className="sm:mx-auto sm:w-full sm:max-w-md text-center mb-6">
+        <div className="mx-auto h-12 w-12 bg-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-200 mb-4 text-white font-bold text-xl">
+          M
+        </div>
+        <h2 className="text-3xl font-extrabold text-gray-900">Welcome Aboard</h2>
+        <p className="mt-2 text-sm text-gray-600">
+          Complete your profile to access the MIS Portal
+        </p>
+      </div>
+
+      <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
+        <div className="bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10 border border-zinc-200">
+          
+          {status.message && (
+            <div className="mb-6">
+              <Alert 
+                type={status.type} 
+                message={status.message} 
+                onClose={() => setStatus({ type: null, message: '' })} 
+              />
+            </div>
+          )}
+
+          <form onSubmit={handleSubmit} className="space-y-6">
+            
+            {/* Identity Section */}
+            <div className="space-y-4">
+              <div className="relative">
+                <div className="absolute inset-0 flex items-center" aria-hidden="true">
+                  <div className="w-full border-t border-gray-200" />
+                </div>
+                <div className="relative flex justify-center text-sm">
+                  <span className="bg-white px-2 text-gray-500 font-medium">Account Identity</span>
+                </div>
+              </div>
+              
+              <Input
+                label="Create Username"
+                name="username"
+                value={formData.username}
+                onChange={handleChange}
+                placeholder="jdoe"
+                icon={AtSign}
+                required
+              />
+              
+              <div className="grid grid-cols-2 gap-4">
+                <Input
+                  label="Password"
+                  name="password"
+                  type="password"
+                  value={formData.password}
+                  onChange={handleChange}
+                  placeholder="••••••••"
+                  icon={Lock}
+                  required
+                />
+                <Input
+                  label="Confirm"
+                  name="confirmPassword"
+                  type="password"
+                  value={formData.confirmPassword}
+                  onChange={handleChange}
+                  placeholder="••••••••"
+                  icon={Lock}
+                  required
+                />
+              </div>
+            </div>
+
+            {/* Details Section */}
+            <div className="space-y-4">
+              <div className="relative pt-2">
+                <div className="absolute inset-0 flex items-center" aria-hidden="true">
+                  <div className="w-full border-t border-gray-200" />
+                </div>
+                <div className="relative flex justify-center text-sm">
+                  <span className="bg-white px-2 text-gray-500 font-medium">Personal Details</span>
+                </div>
+              </div>
+              
+              <Input
+                label="Contact Number"
+                name="contactNumber"
+                value={formData.contactNumber}
+                onChange={handleChange}
+                placeholder="+63 900 000 0000"
+                icon={Phone}
+              />
+              
+              <Input
+                label="Birth Date"
+                name="birthDay"
+                type="date"
+                value={formData.birthDay}
+                onChange={handleChange}
+                icon={Calendar}
+              />
+            </div>
+
+            <div className="pt-2">
+              <Button
+                type="submit"
+                variant="primary"
+                className="w-full flex justify-center"
+                size="lg"
+                isLoading={loading}
+                icon={loading ? null : ArrowRight}
+              >
+                {loading ? 'Finalizing Setup...' : 'Complete Registration'}
+              </Button>
+            </div>
+
+          </form>
+        </div>
+
+        <p className="mt-6 text-center text-xs text-gray-400">
+          By registering, you agree to the organization's acceptable use policy.
+        </p>
+      </div>
     </div>
   );
 }

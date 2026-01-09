@@ -2,7 +2,6 @@ import React, { useState, useEffect } from "react";
 import { Outlet, Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useConfig } from "../context/ConfigContext";
-import { encodeId } from "../utils/idEncoder"; // <--- IMPORT
 
 import {
   LayoutGrid,
@@ -19,10 +18,13 @@ import {
   User,
   MoreVertical,
   ChevronRight,
-  Home
+  Home,
+  Activity,
+  ShieldAlert,
+  Terminal
 } from "lucide-react";
 
-import { ConfirmationModal, Dropdown, Badge, Avatar } from "../components/UI";
+import { ConfirmationModal, Dropdown, Avatar } from "../components/UI";
 
 const WIDTH_EXPANDED = "w-[260px]";
 const WIDTH_COLLAPSED = "w-[72px]";
@@ -37,6 +39,7 @@ const NavItem = ({ to, icon: Icon, label, isCollapsed, isActive }) => (
           : "text-zinc-400 hover:text-white hover:bg-zinc-900"
       }
     `}
+    title={isCollapsed ? label : ""}
   >
     <div className="h-[44px] w-[48px] flex items-center justify-center flex-shrink-0">
       <Icon
@@ -57,6 +60,15 @@ const NavItem = ({ to, icon: Icon, label, isCollapsed, isActive }) => (
     </div>
   </Link>
 );
+
+const NavSectionTitle = ({ label, isCollapsed }) => {
+  if (isCollapsed) return <div className="h-4 my-2" />;
+  return (
+    <div className="px-6 mt-6 mb-2 text-[10px] font-bold uppercase tracking-widest text-zinc-600">
+      {label}
+    </div>
+  );
+};
 
 const MainLayout = () => {
   const { user, logout } = useAuth();
@@ -97,9 +109,7 @@ const MainLayout = () => {
         {pathnames.length > 0 && <ChevronRight size={14} className="text-zinc-300" />}
         
         {pathnames.map((value, index) => {
-          const to = `/${pathnames.slice(0, index + 1).join("/")}`;
           const isLast = index === pathnames.length - 1;
-          
           let label = value.replace(/-/g, " ");
           
           if (isLast && breadcrumbLabel) {
@@ -107,13 +117,13 @@ const MainLayout = () => {
           }
 
           return (
-            <React.Fragment key={to}>
+            <React.Fragment key={index}>
               {isLast ? (
                 <span className="font-semibold text-black capitalize truncate max-w-[200px]">
                   {label}
                 </span>
               ) : (
-                <span className="capitalize">{label}</span> // Non-clickable for intermediate encoded IDs usually
+                <span className="capitalize">{label}</span>
               )}
               {!isLast && <ChevronRight size={14} className="text-zinc-300" />}
             </React.Fragment>
@@ -122,6 +132,11 @@ const MainLayout = () => {
       </div>
     );
   };
+
+  // Check if user has ANY dev permissions to show the section header
+  const hasDevAccess = hasPermission(user, PERMISSIONS.VIEW_MONITOR) || 
+                       hasPermission(user, PERMISSIONS.VIEW_SOCKET_TEST) || 
+                       hasPermission(user, PERMISSIONS.VIEW_ADMIN_TOOLS);
 
   return (
     <div className="flex h-screen bg-zinc-100 text-zinc-900 overflow-hidden font-sans selection:bg-black selection:text-white">
@@ -138,9 +153,10 @@ const MainLayout = () => {
         ${!isMobileOpen && isCollapsed ? WIDTH_COLLAPSED : WIDTH_EXPANDED}
       `}
       >
-        <div className="h-[64px] flex items-center px-4 relative flex-shrink-0">
+        {/* LOGO AREA */}
+        <div className="h-[64px] flex items-center px-4 relative flex-shrink-0 border-b border-zinc-900">
           <div className="flex items-center justify-center flex-shrink-0 min-w-[40px]">
-             <img src="/LOGO.png" alt="MB" className="w-8 h-8" />
+             <img src="/LOGO.png" alt="M" className="w-8 h-8 object-contain" />
           </div>
           <span
             className={`font-bold text-lg tracking-tight ml-3 whitespace-nowrap overflow-hidden transition-all duration-300 ${
@@ -169,50 +185,93 @@ const MainLayout = () => {
           </button>
         </div>
 
-        <nav className="flex-1 overflow-y-auto overflow-x-hidden scrollbar-hide py-6 space-y-1">
+        {/* NAVIGATION */}
+        <nav className="flex-1 overflow-y-auto overflow-x-hidden scrollbar-hide py-4 space-y-1">
+          
           <NavItem
             to="/dashboard"
             icon={LayoutGrid}
-            label="Feed"
+            label="Dashboard"
             isCollapsed={isCollapsed}
             isActive={isActive("/dashboard")}
           />
-          {hasPermission(user, PERMISSIONS.MANAGE_USERS) && (
+          
+          {hasPermission(user, PERMISSIONS.VIEW_USERS) && (
             <NavItem
               to="/users"
               icon={Users}
-              label="User Directory"
+              label="Directory"
               isCollapsed={isCollapsed}
               isActive={isActive("/users")}
             />
           )}
+          
           {hasPermission(user, PERMISSIONS.VIEW_AUDIT_LOGS) && (
             <NavItem
               to="/audit-logs"
               icon={FileCode}
-              label="System Logs"
+              label="Audit Logs"
               isCollapsed={isCollapsed}
               isActive={isActive("/audit-logs")}
             />
           )}
-          {hasPermission(user, PERMISSIONS.VIEW_SOCKET_TEST) && (
-            <NavItem
-              to="/socket-test"
-              icon={Zap}
-              label="Signals"
-              isCollapsed={isCollapsed}
-              isActive={isActive("/socket-test")}
-            />
+
+          {/* DEVELOPMENT SECTION */}
+          {hasDevAccess && (
+            <>
+              <NavSectionTitle label="System Tools" isCollapsed={isCollapsed} />
+              
+              {hasPermission(user, PERMISSIONS.VIEW_MONITOR) && (
+                <NavItem
+                  to="/monitor"
+                  icon={Activity}
+                  label="Live Monitor"
+                  isCollapsed={isCollapsed}
+                  isActive={isActive("/monitor")}
+                />
+              )}
+              
+              {hasPermission(user, PERMISSIONS.VIEW_SOCKET_TEST) && (
+                <NavItem
+                  to="/socket-test"
+                  icon={Zap}
+                  label="Socket IO"
+                  isCollapsed={isCollapsed}
+                  isActive={isActive("/socket-test")}
+                />
+              )}
+
+              {hasPermission(user, PERMISSIONS.VIEW_SOCKET_TEST) && (
+                <NavItem
+                  to="/test-dashboard"
+                  icon={Terminal}
+                  label="Console"
+                  isCollapsed={isCollapsed}
+                  isActive={isActive("/test-dashboard")}
+                />
+              )}
+
+              {hasPermission(user, PERMISSIONS.VIEW_ADMIN_TOOLS) && (
+                <NavItem
+                  to="/admin-test"
+                  icon={ShieldAlert}
+                  label="Admin Sandbox"
+                  isCollapsed={isCollapsed}
+                  isActive={isActive("/admin-test")}
+                />
+              )}
+            </>
           )}
         </nav>
 
-        <div className="p-3 border-t border-zinc-900 mt-auto flex-shrink-0">
+        {/* USER PROFILE DROPDOWN */}
+        <div className="p-3 border-t border-zinc-900 mt-auto flex-shrink-0 bg-black">
           <Dropdown
             align="top"
             matchWidth={!isCollapsed}
             trigger={
               <div
-                className={`flex items-center transition-all duration-300 rounded-lg bg-zinc-900/40 border border-zinc-800/50 p-1.5 h-[52px] overflow-hidden cursor-pointer hover:bg-zinc-800 ${
+                className={`flex items-center transition-all duration-300 rounded-lg bg-zinc-900/60 border border-zinc-800/50 p-1.5 h-[52px] overflow-hidden cursor-pointer hover:bg-zinc-800 ${
                   isCollapsed
                     ? "justify-center w-full"
                     : "justify-between w-full"
@@ -246,7 +305,6 @@ const MainLayout = () => {
             }
           >
             <div className={isCollapsed ? "w-56" : ""}>
-              {/* LINK UPDATED WITH ENCODED ID */}
               <Link
                 to={`/profile`}
                 className="flex items-center gap-2 px-4 py-2.5 text-sm text-zinc-700 hover:bg-zinc-50 transition-colors"
@@ -265,6 +323,7 @@ const MainLayout = () => {
         </div>
       </aside>
 
+      {/* MOBILE HEADER */}
       <div className="flex-1 flex flex-col h-full overflow-hidden relative bg-zinc-100">
         <header className="h-[60px] bg-white text-black flex items-center px-4 lg:hidden z-10 justify-between flex-shrink-0 shadow-sm border-b border-zinc-200">
           <div className="flex items-center">
@@ -275,13 +334,15 @@ const MainLayout = () => {
           </div>
         </header>
 
+        {/* MAIN CONTENT AREA */}
         <main className="flex-1 overflow-x-hidden overflow-y-auto scroll-smooth p-0 lg:p-4">
           <div className="w-full max-w-7xl mx-auto min-h-[calc(100vh-2rem)] bg-white lg:rounded-lg shadow-sm border border-zinc-200 flex flex-col overflow-hidden">
             
-            <div className="sticky top-0 z-30 bg-white/90 backdrop-blur-sm border-b border-zinc-100 px-6 h-[64px] flex items-center justify-between">
+            {/* Top Bar with Breadcrumbs */}
+            <div className="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-zinc-100 px-6 h-[64px] flex items-center justify-between supports-[backdrop-filter]:bg-white/80">
               <div className="flex items-center space-x-2">
                  {isCollapsed && (
-                  <button onClick={() => setIsCollapsed(false)} className="hidden lg:block mr-2 text-zinc-400 hover:text-black">
+                  <button onClick={() => setIsCollapsed(false)} className="hidden lg:block mr-2 text-zinc-400 hover:text-black transition-colors">
                     <PanelLeftOpen size={18} />
                   </button>
                  )}
@@ -290,15 +351,23 @@ const MainLayout = () => {
 
               <div className="flex items-center space-x-3">
                  <div className="hidden md:flex items-center bg-zinc-50 px-3 py-1.5 rounded-lg border border-zinc-200 focus-within:border-zinc-400 focus-within:bg-white transition-all w-64 group">
-                    <Search size={14} className="text-zinc-400 mr-2 group-focus-within:text-black" />
-                    <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Quick find..." className="bg-transparent border-none outline-none text-xs w-full text-zinc-700 h-full"/>
+                    <Search size={14} className="text-zinc-400 mr-2 group-focus-within:text-black transition-colors" />
+                    <input 
+                      type="text" 
+                      value={searchQuery} 
+                      onChange={(e) => setSearchQuery(e.target.value)} 
+                      placeholder="Quick find..." 
+                      className="bg-transparent border-none outline-none text-xs w-full text-zinc-700 h-full placeholder:text-zinc-400"
+                    />
                  </div>
-                 <button className="text-zinc-400 hover:text-black p-2 rounded-full hover:bg-zinc-50">
+                 <button className="text-zinc-400 hover:text-black p-2 rounded-full hover:bg-zinc-100 transition-colors relative">
                     <Bell size={18} />
+                    <span className="absolute top-2 right-2 w-2 h-2 bg-indigo-500 rounded-full ring-2 ring-white"></span>
                  </button>
               </div>
             </div>
 
+            {/* Page Content */}
             <div className="flex-1 p-6 md:p-8 relative">
               <Outlet context={{ setBreadcrumbLabel }} />
             </div>
@@ -306,6 +375,7 @@ const MainLayout = () => {
         </main>
       </div>
 
+      {/* LOGOUT CONFIRMATION */}
       <ConfirmationModal
         isOpen={showLogoutConfirm}
         onClose={() => setShowLogoutConfirm(false)}
@@ -316,8 +386,9 @@ const MainLayout = () => {
         isDangerous={true}
       />
       
+      {/* MOBILE BACKDROP */}
       {isMobileOpen && (
-        <div className="fixed inset-0 bg-zinc-900/60 backdrop-blur-sm z-[50] lg:hidden" onClick={() => setIsMobileOpen(false)} />
+        <div className="fixed inset-0 bg-zinc-900/60 backdrop-blur-sm z-[50] lg:hidden animate-in fade-in" onClick={() => setIsMobileOpen(false)} />
       )}
     </div>
   );

@@ -1,17 +1,13 @@
-// server/src/controllers/auditLog.controller.js
 import * as AuditLogService from '../services/auditLog.service.js';
 
 export const getAuditLogs = async (req, res, next) => {
   try {
-    // Pass query params (page, limit, search) to the service
     const { count, rows } = await AuditLogService.findAll(req.query);
     
-    // Calculate Metadata based on actual query parameters
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
     const totalPages = Math.ceil(count / limit);
 
-    // Return structured response matching your frontend requirements
     res.json({
       data: rows,
       meta: {
@@ -22,6 +18,22 @@ export const getAuditLogs = async (req, res, next) => {
       }
     });
   } catch (error) {
-    next(error); //
+    next(error);
+  }
+};
+
+// --- NEW: Get Single Log ---
+export const getAuditLogById = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const log = await AuditLogService.findById(id);
+
+    if (!log) {
+      return res.status(404).json({ success: false, message: 'Log entry not found' });
+    }
+
+    res.json(log);
+  } catch (error) {
+    next(error);
   }
 };

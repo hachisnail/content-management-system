@@ -48,64 +48,49 @@ const AdminDashboard = () => {
 
 ## 2. Data Fetching & UI State Management
 
-We use a combination of two hooks, `useTableControls` and `useRealtimeResource`, to manage server-side data operations (pagination, sorting, filtering) and display it in a table.
+The application now uses a centralized, `zustand`-based store for all real-time data, which eliminates race conditions and ensures data consistency. Components interact with this store via two specialized hooks.
 
-### Step 1: `useTableControls(options)`
+-   **`useRealtimeResource`**: For fetching and subscribing to **lists** of data (e.g., users, logs). It supports server-side pagination, sorting, and filtering.
+-   **`useRealtimeRecord`**: For fetching and subscribing to a **single record** by its ID (e.g., a specific user's profile).
 
-This hook manages the state of UI controls like pagination, search, and filters. It generates a `queryParams` object that can be passed directly to the data-fetching hook.
+This dual-hook approach provides both efficiency for single-record views and scalability for large data tables.
 
--   **`options`**: An object for configuration.
-    -   `defaultLimit`: The number of items per page (e.g., `10`).
-    -   `initialSort`: The default sort order (e.g., `{ key: 'createdAt', direction: 'desc' }`).
--   **Returns:**
-    -   `page`, `setPage`: Current page number and its setter.
-    -   `limit`, `setLimit`: Items per page and its setter.
-    -   `search`, `setSearch`: The raw search query and its setter.
-    -   `filters`, `handleFilterChange`: Current filters and a function to update them.
-    -   `queryParams`: A memoized object containing the combined state (`{ page, limit, search, sort_by, sort_dir, ...filters }`). **This is the object you will pass to the data-fetching hook.**
-    -   `handleSortChange`: A function to be passed to a table component's `onSort` prop.
+### `useTableControls(options)`
 
-### Step 2: `useRealtimeResource(resourceName, options)`
+This hook's role is unchanged. It manages the state of UI controls (pagination, search) and generates a `queryParams` object to be passed to `useRealtimeResource`.
 
-This is the primary hook for fetching data and subscribing to real-time updates via WebSockets.
+-   **Returns:** `queryParams`, `setPage`, `setSearch`, `handleSortChange`, etc.
+
+### `useRealtimeResource(resourceName, options)`
+
+This is the primary hook for fetching **lists** of data. It connects to the central store and handles server-side data operations.
 
 -   **`resourceName`**: The name of the API resource (e.g., `'audit_logs'`).
 -   **`options`**: A configuration object.
-    -   `queryParams`: **(Required)** The `queryParams` object from `useTableControls`.
-    -   `updateStrategy`: `'refetch'` (default) or `'manual'`.
-        -   `'refetch'`: The safest strategy. Any real-time event will cause a full refetch of the current page. Best for complex data tables.
-        -   `'manual'`: A smoother UX for simple lists. On page 1, new items are prepended to the list without a refetch. On other pages, it falls back to refetching.
-    -   `onUpdate`: A callback function that fires in `'manual'` mode when an item is updated, allowing for custom logic.
+    -   `queryParams`: **(Recommended)** The `queryParams` object from `useTableControls`.
 -   **Returns:**
     -   `data`: An array of items for the current page.
-    -   `meta`: An object with pagination details (`{ totalItems, itemsPerPage, currentPage, totalPages }`).
+    -   `meta`: An object with pagination details (`{ totalItems, ... }`).
     -   `loading`: A boolean loading state.
     -   `error`: Any error that occurred during fetching.
+
+### `useRealtimeRecord(resourceName, id, options)`
+
+A specialized, highly-efficient hook for a **single record**.
+
+-   **`resourceName`**: The name of the resource (e.g., `'users'`).
+-   **`id`**: The ID of the record.
+-   **`options`**: `{ isEnabled: boolean }`.
+-   **Returns:**
+    -   `data`: The user object, or `null` if not found/loading.
+    -   `loading`: A boolean loading state.
+    -   `error`: Any fetch error.
 
 ---
 
 ## 3. UI Components
 
-The primary UI component for displaying this data is `<DataTable />`.
-
-### `<DataTable props>`
-
-A flexible table component designed to work with our data hooks.
-
--   **`columns`**: An array of objects defining the table columns.
-    -   `header`: The text to display in the `<th>`.
-    -   `accessor`: The key in the data object to use for sorting.
-    -   `sortable`: `true` if the column should be sortable.
-    -   `render`: A function `(row) => JSX` that returns the JSX to render for a cell.
--   **`data`**: The `data` array from `useRealtimeResource`.
--   **`isLoading`**: The `loading` boolean from `useRealtimeResource`. For a better UX, pass `loading && page === 1`.
--   **`onSearch`**: The `setSearch` function from `useTableControls`.
--   **`onSort`**: The `handleSortChange` function from `useTableControls`.
--   **`serverSidePagination`**: An object containing all pagination data.
-    -   `totalItems`: The `totalCount` derived from `meta.totalItems`.
-    -   `currentPage`: The `page` from `useTableControls`.
-    -   `itemsPerPage`: The `limit` from `useTableControls`.
-    -   `onPageChange`: The `setPage` function from `useTableControls`.
+The primary UI component for displaying this data is `<DataTable />`. Its props remain largely the same.
 
 ---
 
@@ -114,20 +99,17 @@ A flexible table component designed to work with our data hooks.
 This example ties all the concepts together to create a page similar to `AuditLogs.jsx`.
 
 ```jsx
-import React, { useState } from 'react';
-import useRealtimeResource from '../../hooks/useRealtimeResource';
+import React from 'react';
+import { useRealtimeResource } from '../../hooks/useRealtimeResource';
 import { useTableControls } from '../../hooks/useTableControls';
-import { DataTable, Badge, Button, Alert, Dropdown } from '../../components/UI';
-import { Clock, Filter, Check } from 'lucide-react';
+import { DataTable, Alert } from '../../components/UI';
 
 function LogPage() {
-  // 1. Set up table controls. Default sort is newest first.
+  // 1. Set up table controls.
   const { 
-    page, setPage, 
-    limit, 
-    search, setSearch, 
-    filters, handleFilterChange, 
-    queryParams, 
+    queryParams,
+    setPage, 
+    setSearch, 
     handleSortChange 
   } = useTableControls({ 
     defaultLimit: 15, 
@@ -135,39 +117,19 @@ function LogPage() {
   });
 
   // 2. Fetch data using the queryParams from the controls hook.
-  //    Use 'manual' strategy for smooth real-time prepending of new logs.
+  //    The new hook is simpler and always uses a 'refetch' strategy,
+  //    making it robust and keeping the server as the source of truth.
   const { data, meta, loading, error } = useRealtimeResource('audit_logs', { 
-    queryParams,
-    updateStrategy: 'manual'
+    queryParams
   });
 
   // 3. Derive state for the UI.
   const logs = data || [];
   const totalCount = meta?.totalItems || 0;
 
-  // 4. Define columns for the DataTable.
+  // 4. Define columns for the DataTable. (Implementation omitted for brevity)
   const columns = [
-    { 
-      header: "Timestamp", 
-      accessor: "createdAt",
-      sortable: true,
-      render: (log) => (
-        <div>
-          {new Date(log.createdAt).toLocaleString()}
-        </div>
-      )
-    },
-    { 
-      header: "Operation", 
-      accessor: "operation",
-      sortable: true,
-      render: (log) => <Badge>{log.operation}</Badge>
-    },
-    { 
-      header: "Description", 
-      accessor: "description",
-      render: (log) => <p>{log.description}</p>
-    },
+    // ... column definitions
   ];
 
   if (error) return <Alert type="error" title="Sync Error" message={error} />;
@@ -180,25 +142,16 @@ function LogPage() {
       <DataTable 
         columns={columns} 
         data={logs} 
-        isLoading={loading && page === 1} // Only show big loader on first load
+        isLoading={loading && queryParams.page === 1}
         onSearch={setSearch}
         onSort={handleSortChange}
         searchPlaceholder="Filter by description..."
         serverSidePagination={{
           totalItems: totalCount,
-          currentPage: page,
-          itemsPerPage: limit,
+          currentPage: queryParams.page,
+          itemsPerPage: queryParams.limit,
           onPageChange: setPage
         }}
-        filterSlot={
-          <Dropdown trigger={<Button icon={Filter}>Filter Action</Button>}>
-            {['CREATE', 'UPDATE', 'DELETE'].map(op => (
-              <button key={op} onClick={() => handleFilterChange('operation', op)}>
-                {op}
-              </button>
-            ))}
-          </Dropdown>
-        }
       />
     </div>
   );

@@ -5,9 +5,6 @@ export const findAll = async (queryParams = {}) => {
   const searchableFields = ['description', 'affectedResource', 'initiator', 'operation'];
   const options = buildQueryOptions(queryParams, searchableFields);
 
-  // 1. ROBUST SORTING
-  // Default to createdAt DESC if no sort provided.
-  // We use strict array syntax [['col', 'dir']] so Sequelize handles table aliases automatically.
   let order = [['createdAt', 'DESC']];
   if (options.order && options.order.length > 0) {
     order = options.order;
@@ -19,23 +16,18 @@ export const findAll = async (queryParams = {}) => {
       limit: options.limit,
       offset: options.offset,
       order: order,
-
-      // CRITICAL: prevents 'Unknown column' errors when sorting on joined tables
       subQuery: false, 
       distinct: true, 
-
       include: [{
         model: db.User,
         as: 'user',
         attributes: ['id', 'email', 'firstName', 'lastName'],
-        required: false, // LEFT JOIN (keep log even if user is deleted)
-        
-        // --- NEW: NESTED PROFILE PICTURE ---
+        required: false, 
         include: [{
           model: db.File,
-          as: 'profilePicture', // Matches alias in models/index.js
-          attributes: ['id', 'fileName', 'relatedType'], // Data needed to build the URL
-          required: false // LEFT JOIN (user might not have a pic)
+          as: 'profilePicture',
+          attributes: ['id', 'fileName', 'relatedType'],
+          required: false 
         }]
       }]
     });
@@ -47,6 +39,20 @@ export const findAll = async (queryParams = {}) => {
   }
 };
 
+// --- UPDATED: Fetch Single Log with Relations ---
 export const findById = async (id) => {
-  return await db.AuditLog.findByPk(id);
+  return await db.AuditLog.findByPk(id, {
+    include: [{
+      model: db.User,
+      as: 'user',
+      attributes: ['id', 'email', 'firstName', 'lastName'],
+      required: false, // Keep log even if user deleted
+      include: [{
+        model: db.File,
+        as: 'profilePicture',
+        attributes: ['id', 'fileName', 'relatedType'],
+        required: false
+      }]
+    }]
+  });
 };

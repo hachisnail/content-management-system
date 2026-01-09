@@ -1,247 +1,147 @@
 # Real-Time Service Documentation
 
-This guide explains the architecture and usage of the **Real-Time Service**. The system uses a **Secure Hybrid Architecture**:
+This guide explains the architecture and usage of the **Real-Time Service**. The system uses a **Centralized Store Architecture** to ensure data consistency, efficiency, and to prevent race conditions.
 
-* **REST APIs** for initial data loading (Snapshot)
-* **Socket.IO Rooms** for live updates (Append / Modify)
-* **Database Hooks** for automatic event emission
-* **Access Control Lists (ACL)** for security
-
----
-
-## 1. Client-Side Implementation
-
-### Dependencies
-
-* `socket.io-client`
-* `axios` (used by the hook for initial snapshots)
+*   **REST APIs** for data fetching.
+*   **Socket.IO Rooms** for live updates.
+*   **Database Hooks** for automatic event emission.
+*   **A Centralized `zustand` Store** on the client to act as a single source of truth.
 
 ---
 
-### The `useRealtimeResource` Hook
+## 1. Client-Side Architecture
 
-The custom hook `useRealtimeResource` manages the entire lifecycle of real-time data:
+The client no longer uses independent hooks that fetch and manage their own state. Instead, all real-time logic is handled by a central store, powered by `zustand`.
 
-* **Fetch** – Loads the initial snapshot via REST
-* **Subscribe** – Emits `subscribe_resource` to join a secure room
-* **Listen** – Updates local state on `_created`, `_updated`, `_deleted` events
-* **Cleanup** – Automatically unsubscribes when the component unmounts
+### Core Concepts
 
-**Location:**
+1.  **Singleton Stores**: For each resource type (e.g., 'users', 'donations'), a single `zustand` store is created. This store is responsible for fetching all data and listening to all socket events for that resource.
+2.  **Centralized Listeners**: The store is the only part of the app that contains `socket.on()` listeners. This completely eliminates race conditions and bugs from multiple components trying to handle the same event.
+3.  **Query Caching**: The store can handle multiple types of requests. It maintains separate caches for list-based queries (e.g., from a table with filters) and single-record fetches (e.g., for a profile page).
+4.  **Component Hooks**: React components use one of two simple hooks to connect to the store and retrieve data. These hooks do not fetch data themselves; they only select it from the central store.
 
-```
-client/src/hooks/useRealtimeResource.jsx
-```
+### Core Files
+
+| File                                       | Purpose                                                                   |
+| ------------------------------------------ | ------------------------------------------------------------------------- |
+| `client/src/stores/createRealtimeStore.js` | A factory that creates the `zustand` store for a given resource.          |
+| `client/src/hooks/useRealtimeResource.jsx` | The main hook components use to get real-time data from the store.        |
+| `client/src/hooks/useRealtimeRecord.js`  | A specialized hook for fetching and subscribing to a single record by its ID. |
 
 ---
 
-### Usage Example
+### A. Fetching Lists: `useRealtimeResource`
+
+This hook is used for fetching collections of data, such as for tables and lists. It supports server-side pagination, filtering, and sorting via `queryParams`.
+
+**Usage Example:**
 
 ```javascript
-import useRealtimeResource from '../hooks/useRealtimeResource';
+import { useRealtimeResource } from '../hooks/useRealtimeResource';
 
-function UserList() {
-  // 1. Call the hook with the resource name
-  // This automatically:
-  //    - GET /api/users
-  //    - socket.emit('subscribe_resource', 'users')
-  const { data: users = [], loading, error } = useRealtimeResource('users');
+function UserDirectory() {
+  const { queryParams } = useTableControls(); // Gets page, limit, sort, etc.
 
-  // 2. Client-Side Sorting (CRITICAL)
-  // The hook appends new items to the list.
-  // You MUST sort before rendering to ensure correct order.
-  const sortedUsers = [...users].sort((a, b) => b.id - a.id);
+  // 1. Call the hook with the resource and query params.
+  // The hook gets the data from the central 'users' store.
+  // If this specific query isn't cached, the store fetches it from /api/users.
+  const { data: users, meta, loading } = useRealtimeResource('users', { queryParams });
 
-  if (loading) return <div>Loading...</div>;
-  if (error) return <div className="text-red-500">Error: {error}</div>;
+  // 2. When any user is updated, the central store receives the event
+  // and automatically refetches this query to keep the data consistent.
 
-  return (
-    <ul>
-      {sortedUsers.map((user) => (
-        <li key={user.id}>
-          {user.name} {user.isOnline ? '🟢' : '⚫'}
-        </li>
-      ))}
-    </ul>
-  );
+  return <DataTable data={users} isLoading={loading} ... />;
 }
 ```
 
 ---
 
-### Hook Return Values
+### B. Fetching a Single Record: `useRealtimeRecord`
 
-| Property  | Type             | Description                                |
-| --------- | ---------------- | ------------------------------------------ |
-| `data`    | `Array`          | Live list of items                         |
-| `loading` | `Boolean`        | `true` while fetching the initial snapshot |
-| `error`   | `String \| null` | Error message if fetch fails               |
+This hook is a highly efficient way to get and subscribe to a single record.
+
+**Usage Example:**
+
+```javascript
+import { useRealtimeRecord } from '../hooks/useRealtimeRecord';
+
+function UserProfile({ userId }) {
+  // 1. Call the hook with the resource and the record's ID.
+  // It fetches from /api/users/:id and subscribes to the 'users_123' room.
+  const { data: user, loading } = useRealtimeRecord('users', userId);
+
+  // 2. When an update for this specific user is emitted, this hook's
+  // data is updated directly without a refetch, making it instantaneous.
+  
+  if (loading) return 'Loading...';
+  
+  return <h1>{user.name}</h1>;
+}
+```
 
 ---
 
 ## 2. Server-Side Implementation
 
-### Architecture Overview
+The server is responsible for emitting events to the correct rooms. To support the new dual-hook system on the client, the server now emits to **two rooms** for every update/delete.
 
-We **do not** manually emit socket events in controllers for standard CRUD operations.
+1.  **Generic Room** (`users`): For list views, so they know to refetch.
+2.  **Specific Room** (`users_123`): For single-record views, so they can update instantly.
 
-Instead, we use a **Centralized Hook Strategy**:
+### Emission Logic (`server/src/models/hooks.js`)
 
-1. **Database Change** – A record is created or updated via API, Admin Panel, or Job
-2. **Hook Trigger** – A Sequelize hook detects the change
-3. **Room Emission** – The hook emits the event only to the specific resource room
-
-Example:
-
-```js
-io.to('audit_logs').emit('audit_logs_created', payload)
-```
-
----
-
-### Core Files
-
-| File                         | Purpose                                                            |
-| ---------------------------- | ------------------------------------------------------------------ |
-| `server/src/socket.js`       | Security layer: authentication and `subscribe_resource` ACL checks |
-| `server/src/models/hooks.js` | Smart factories that emit events to specific rooms                 |
-| `server/src/models/index.js` | Registry that attaches hooks to Sequelize models                   |
-
----
-
-## 3. Security & Access Control (ACL)
-
-Unlike standard Socket.IO implementations, users **do not receive events by default**.
-
-They must explicitly request access to a resource.
-
----
-
-### Subscription Handshake Flow
-
-1. Client emits `subscribe_resource` with a resource name (e.g., `audit_logs`)
-2. Server checks `socket.user.role` against the Allow List
-3. If allowed → `socket.join('audit_logs')`
-4. If denied → Server emits an error log and refuses the subscription
-
----
-
-### Permission Table (configured in `socket.js`)
-
-| Resource     | Access Level                    |
-| ------------ | ------------------------------- |
-| `donations`  | Public (Guests + Users)         |
-| `inventory`  | Authenticated Users             |
-| `users`      | Admin Only (Admin, Super Admin) |
-| `audit_logs` | Admin Only (Admin, Super Admin) |
-
----
-
-## 4. How to Add Real-Time to a Model
-
-To enable real-time updates for a table, open:
-
-```
-server/src/models/index.js
-```
-
-Attach the appropriate factory.
-
----
-
-### Case A: Append-Only Data
-
-**Examples:** Audit Logs, Donations
-
-* **Behavior:** Emits `<name>_created`
-* **Hook:** `afterCreate`
+The `notifyMutableResource` hook was updated to handle this dual emission.
 
 ```javascript
-import { notifyNewResource } from './hooks.js';
+export const notifyMutableResource = (resourceName, eagerLoad = null) => async (instance, options) => {
+  const recordRoom = `${resourceName}_${instance.id}`;
+  const eventName = instance.isNewRecord ? `${resourceName}_created` : `${resourceName}_updated`;
 
-// The string 'donations' MUST match useRealtimeResource('donations')
-db.Donation.afterCreate(notifyNewResource('donations'));
+  // ...
+  
+  // 1. Emit to generic room for lists
+  safeEmit(resourceName, eventName, payload);
+  
+  // 2. If it's an update, also emit to the specific record room
+  if (!instance.isNewRecord) {
+    safeEmit(recordRoom, eventName, payload);
+  }
+};
 ```
+
+This ensures that both `useRealtimeResource` (which joins the `users` room) and `useRealtimeRecord` (which joins the `users_123` room) receive the updates they need.
 
 ---
 
-### Case B: Mutable Data
+## 3. How to Add Real-Time to a Model
 
-**Examples:** Users
+The process is the same as before. Open `server/src/models/index.js` and attach the appropriate hook factory. The factories now contain all the logic for dual-emission.
 
-* **Behavior:** Emits `<name>_updated` (create + update) and `<name>_deleted`
-* **Hook:** `afterSave`
+### Mutable Data (Users, Products, etc.)
+
+Use `notifyMutableResource`. This handles create, update, and delete events and emits to both room types.
 
 ```javascript
 import { notifyMutableResource } from './hooks.js';
-
 db.User.afterSave(notifyMutableResource('users'));
+db.User.afterDestroy(notifyDeletedResource('users')); // Ensure delete is also handled
 ```
 
----
+### Append-Only Data (Logs, etc.)
 
-## 5. Event Naming Convention
+Use `notifyNewResource`. This only emits a `_created` event to the generic room.
 
-The system relies on **strict naming conventions**.
-
-If your resource string is **`users`**, the following events are expected:
-
-| Event Name      | Triggered By   | Payload            | Client Action      |
-| --------------- | -------------- | ------------------ | ------------------ |
-| `users_created` | `afterCreate`  | Full JSON object   | Append to list     |
-| `users_updated` | `afterSave`    | Full JSON object   | Replace item by ID |
-| `users_deleted` | `afterDestroy` | `{ id }` or Object | Remove item by ID  |
-
----
-
-## 6. Troubleshooting
-
-### "I'm not receiving updates"
-
-* **Check Subscription** – Look at the server console for:
-
-  ```
-  [Socket] Unauthorized subscription attempt
-  ```
-
-  This indicates insufficient role permissions.
-
-* **Check Room Name** – The string passed to `useRealtimeResource('X')` **must match** `notifyNewResource('X')`.
-
-* **Check Model Hook** – Ensure the hook is attached in:
-
-  ```
-  server/src/models/index.js
-  ```
-
----
-
-### "Logs appear out of order"
-
-✔ Always sort in the React component:
-
-```js
-[...data].sort(...)
+```javascript
+import { notifyNewResource } from './hooks.js';
+db.AuditLog.afterCreate(notifyNewResource('audit_logs'));
 ```
-
-The hook appends items; ordering is the client’s responsibility.
-
----
-
-### "Circular structure JSON error"
-
-✔ The smart factories in `hooks.js` automatically call `.toJSON()`.
-
-If you emit custom events, **always serialize Sequelize instances first**.
-
 ---
 
 ## Summary
 
-* Secure, room-based real-time delivery
-* Explicit client subscriptions
-* Centralized Sequelize hooks
-* Zero controller-side socket logic
-* Strong ACL boundaries
+*   **Centralized Client Store (`zustand`)**: Eliminates race conditions and ensures a single source of truth.
+*   **Dual-Hook System**: Use `useRealtimeResource` for lists and `useRealtimeRecord` for single items.
+*   **Dual-Emission on Server**: The server emits events to both generic and specific rooms to support both hooks.
+*   **Efficient Updates**: Single-record views are updated instantly without refetching. List views are reliably kept in sync by refetching.
 
-This architecture is scalable, secure, and production-grade.
+This architecture is scalable, efficient, and robust.

@@ -1,21 +1,21 @@
 import express from 'express';
 import * as DonationController from '../controllers/donation.controller.js';
-import { isAuthenticated, hasRoles } from '../middlewares/auth.middleware.js';
+import { isAuthenticated, hasPermission } from '../middlewares/auth.middleware.js';
+import { PERMISSIONS } from '../config/permissions.js';
 
 const router = express.Router();
 
-// PUBLIC ROUTE (No middleware)
-// Any guest can hit this to submit a form
+// PUBLIC: Submit
 router.post('/submit', DonationController.submitDonation);
 
-// PROTECTED ROUTES (Requires Login)
-// Only staff can view list or change status
-router.get('/', isAuthenticated, DonationController.getAllDonations);
+// PROTECTED: List
+router.get('/', isAuthenticated, hasPermission(PERMISSIONS.VIEW_DONATIONS), DonationController.getAllDonations);
 
+// PROTECTED: Update Status (Intake)
 router.patch(
   '/:id/status', 
   isAuthenticated, 
-  hasRoles(['admin', 'inventory_manager', 'super_admin']), 
+  hasPermission(PERMISSIONS.PROCESS_DONATIONS), 
   DonationController.updateStatus
 );
 
