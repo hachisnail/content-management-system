@@ -95,7 +95,6 @@ export const createUser = async ({ email, firstName, lastName, middleName, roles
   return userJson;
 };
 
-// --- UPDATE (Complete Registration) ---
 export const completeRegistration = async (token, { password, username, contactNumber, birthDay }) => {
   const user = await db.User.findOne({ where: { registrationToken: token } });
   if (!user) throw new Error('Invalid registration token');
@@ -104,7 +103,7 @@ export const completeRegistration = async (token, { password, username, contactN
   const hashedPassword = await bcrypt.hash(password, 10);
 
   user.password = hashedPassword;
-  user.username = username;
+  user.username = username; // <--- This sets it initially (already present)
   user.contactNumber = contactNumber;
   user.birthDay = birthDay;
   user.status = 'active';
@@ -112,7 +111,6 @@ export const completeRegistration = async (token, { password, username, contactN
 
   await user.save();
 
-  // Log Completion
   await logOperation({
     description: 'User completed their registration.',
     operation: 'UPDATE',
@@ -142,12 +140,15 @@ export const updateUser = async (id, updateData, initiatorEmail) => {
   delete beforeState.password;
   delete beforeState.socketId;
 
+  // 1. Standard Fields (Editable by user themselves)
   const basicFields = ['firstName', 'lastName', 'middleName', 'contactNumber', 'birthDay'];
   let allowedFields = [...basicFields];
 
+  // 2. Super Admin Fields (Privileged)
   if (isSuperAdmin) {
     allowedFields.push('email');
     allowedFields.push('status');
+    allowedFields.push('username'); // <--- ADDED: Super Admin can modify username
   }
 
   allowedFields.forEach(field => {
@@ -156,10 +157,8 @@ export const updateUser = async (id, updateData, initiatorEmail) => {
     }
   });
 
-  // FIX: Force update "Live Status" so they appear Online immediately
   user.last_active = new Date();
 
-  // Saving triggers the hooks we configured in models/index.js
   await user.save();
 
   await logOperation({

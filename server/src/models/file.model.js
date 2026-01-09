@@ -26,16 +26,19 @@ const defineFileModel = (sequelize) => {
     relatedType: { 
       type: DataTypes.STRING, 
       allowNull: true,
-      // FIX: Match User table collation
       collate: 'utf8mb4_general_ci' 
     },
-    relatedId: { type: DataTypes.INTEGER, allowNull: true },
+    
+    // CHANGED: From INTEGER to STRING to support UUIDs (User) and Ints (Donation)
+    relatedId: { 
+      type: DataTypes.STRING, 
+      allowNull: true 
+    },
     
     uploadedBy: { type: DataTypes.STRING }, 
   }, {
     timestamps: true,
     tableName: 'files',
-    // FIX: Match User table collation
     charset: 'utf8mb4',
     collate: 'utf8mb4_general_ci'
   });

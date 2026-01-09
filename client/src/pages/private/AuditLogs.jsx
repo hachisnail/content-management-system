@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import useRealtimeResource from '../../hooks/useRealtimeResource';
+import { useRealtimeResource } from '../../hooks/useRealtimeResource';
 import { useTableControls } from '../../hooks/useTableControls';
 import { 
   DataTable, 

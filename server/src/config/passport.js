@@ -47,7 +47,7 @@ export const initializePassport = (passport) => {
       // 1. Fetch ONLY essential session data
       // avoiding 'socketId' or other heavy columns reduces packet size/memory usage
       const user = await db.User.findByPk(id, {
-        attributes: ['id', 'email', 'role', 'status', 'firstName', 'lastName']
+        attributes: ['id', 'email', 'role', 'status', 'firstName', 'lastName', 'last_active']
       });
 
       // 2. Handle "User Not Found" (Deleted while logged in)

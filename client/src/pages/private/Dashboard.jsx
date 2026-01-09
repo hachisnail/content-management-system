@@ -1,7 +1,9 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from "../../context/AuthContext";
 import { useConfig } from "../../context/ConfigContext";
-import useRealtimeResource from "../../hooks/useRealtimeResource";
+import { useRealtimeResource } from "../../hooks/useRealtimeResource";
+import api from "../../api"; 
+import socket from "../../socket"; // Import socket for direct verification
 import { 
   Badge, 
   Button, 
@@ -13,8 +15,8 @@ import {
   Users, 
   History, 
   ShieldCheck, 
-  ArrowUpRight, 
-  Activity 
+  Activity,
+  Zap 
 } from "lucide-react";
 import { useNavigate } from 'react-router-dom';
 
@@ -23,10 +25,42 @@ const Dashboard = () => {
   const { hasPermission, PERMISSIONS } = useConfig();
   const navigate = useNavigate();
 
-  // --- 1. DATA SUMMARY ---
-  // Fetching a snapshot of resources to show on the dashboard
+  const [debugLoading, setDebugLoading] = useState(false);
+
+  // --- DATA ---
   const { data: usersData } = useRealtimeResource('users', { queryParams: { limit: 1 } });
   const { data: logsData } = useRealtimeResource('audit_logs', { queryParams: { limit: 5 } });
+  
+  const recentLogs = Array.isArray(logsData) ? logsData : (logsData?.rows || []);
+
+  // --- DEBUG VERIFICATION ---
+  useEffect(() => {
+    // This listener confirms that the broadcast actually reached this component
+    const handleUpdate = (data) => {
+        console.log("%c[Socket] Broadcast Received: users_updated", "color: #00ff00; background: #000; padding: 2px 5px;", data);
+    };
+    
+    socket.on('users_updated', handleUpdate);
+    return () => socket.off('users_updated', handleUpdate);
+  }, []);
+
+  // --- TRIGGER ---
+  const handleDebugEmit = async () => {
+    if (!user) return;
+    setDebugLoading(true);
+    try {
+      console.log("1. Sending HTTP Request...");
+      await api.updateUser(user.id, {
+        middleName: user.middleName === '.' ? '' : '.' 
+      });
+      console.log("2. HTTP Request Success. Waiting for Socket Broadcast...");
+    } catch (err) {
+      console.error("Debug Trigger Failed:", err);
+      alert("Failed to send signal: " + err.message);
+    } finally {
+      setDebugLoading(false);
+    }
+  };
 
   if (loading) return (
     <div className="h-96 flex items-center justify-center">
@@ -36,12 +70,10 @@ const Dashboard = () => {
 
   if (error) return <Alert type="error" title="Auth Error" message={error} />;
 
-  const recentLogs = Array.isArray(logsData) ? logsData : (logsData?.rows || []);
-
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
       
-      {/* 1. WELCOME HEADER */}
+      {/* HEADER */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-zinc-200 pb-6">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-zinc-900 flex items-center gap-3">
@@ -53,6 +85,17 @@ const Dashboard = () => {
           </p>
         </div>
         <div className="flex items-center gap-2">
+           <Button 
+             variant="danger" 
+             size="sm" 
+             onClick={handleDebugEmit} 
+             isLoading={debugLoading}
+             icon={Zap}
+             className="mr-2"
+           >
+             Test Signal
+           </Button>
+
            <Badge variant="success" className="px-3 py-1">
              <span className="flex items-center gap-1.5">
                <ShieldCheck size={14}/> {Array.isArray(user?.role) ? user.role[0] : user?.role}
@@ -61,7 +104,7 @@ const Dashboard = () => {
         </div>
       </div>
 
-      {/* 2. STATS GRID */}
+      {/* STATS */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="bg-white p-6 rounded-2xl border border-zinc-200 shadow-sm hover:shadow-md transition-shadow">
           <div className="flex items-center justify-between mb-4">
@@ -104,7 +147,7 @@ const Dashboard = () => {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         
-        {/* 3. RECENT ACTIVITY FEED */}
+        {/* RECENT ACTIVITY */}
         <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm overflow-hidden">
           <div className="px-6 py-4 border-b border-zinc-100 flex items-center justify-between">
             <h3 className="font-bold text-zinc-900 flex items-center gap-2">
@@ -116,6 +159,7 @@ const Dashboard = () => {
             </Button>
           </div>
           <div className="p-6 space-y-4">
+            {recentLogs.length === 0 && <p className="text-zinc-400 text-sm text-center italic">No events yet.</p>}
             {recentLogs.map((log) => (
               <div key={log.id} className="flex items-start gap-4 p-3 rounded-xl hover:bg-zinc-50 transition-colors border border-transparent hover:border-zinc-100">
                 <div className="w-8 h-8 rounded-lg bg-zinc-100 flex items-center justify-center text-xs font-bold text-zinc-500 shrink-0">
@@ -133,7 +177,7 @@ const Dashboard = () => {
           </div>
         </div>
 
-        {/* 4. QUICK ACTIONS & PERMISSIONS */}
+        {/* ACTIONS */}
         <div className="space-y-6">
           <div className="bg-indigo-600 rounded-2xl p-6 text-white shadow-lg shadow-indigo-200 relative overflow-hidden">
             <div className="relative z-10">
@@ -145,32 +189,12 @@ const Dashboard = () => {
                     Live Monitor
                   </Button>
                 )}
-                <Button variant="secondary" size="sm" onClick={() => navigate('/invite')} className="bg-white/10 border-white/20 text-white hover:bg-white/20">
+                <Button variant="secondary" size="sm" onClick={() => navigate('/users/invite')} className="bg-white/10 border-white/20 text-white hover:bg-white/20">
                   Invite User
                 </Button>
               </div>
             </div>
             <ShieldCheck className="absolute -bottom-4 -right-4 text-white/10" size={120} />
-          </div>
-
-          <div className="bg-white rounded-2xl border border-zinc-200 p-6 shadow-sm">
-             <h3 className="font-bold text-zinc-900 mb-4">Your Session Security</h3>
-             <div className="space-y-4">
-                <div className="flex items-center justify-between p-3 bg-zinc-50 rounded-xl">
-                   <div className="flex items-center gap-3">
-                      <div className="w-2 h-2 rounded-full bg-green-500" />
-                      <span className="text-sm text-zinc-600">Encrypted WebSocket</span>
-                   </div>
-                   <Badge variant="success">Active</Badge>
-                </div>
-                <div className="flex items-center justify-between p-3 bg-zinc-50 rounded-xl">
-                   <div className="flex items-center gap-3">
-                      <div className="w-2 h-2 rounded-full bg-indigo-500" />
-                      <span className="text-sm text-zinc-600">Last Authentication</span>
-                   </div>
-                   <span className="text-xs text-zinc-400 font-mono">Today, {new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
-                </div>
-             </div>
           </div>
         </div>
       </div>

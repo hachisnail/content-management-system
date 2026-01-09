@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import socket from '../socket';
 import api from '../api';
-import useRealtimeResource from '../hooks/useRealtimeResource';
+import { useRealtimeResource } from '../hooks/useRealtimeResource';
 
 const AuthContext = createContext(null);
 
@@ -16,37 +16,31 @@ export const AuthProvider = ({ children }) => {
     }
   });
 
-  // 2. Fetch Fresh Data (Real-time)
-  // We fetch the latest user data based on the session ID.
+  // 2. Fetch Fresh Data (Real-time) using the new centralized hook
   const { 
     data: liveUser, 
     loading: liveLoading, 
     error: liveError 
   } = useRealtimeResource('users', { 
-    id: session?.id || '_guest_', 
+    id: session?.id, 
     isEnabled: !!session?.id 
   });
 
   // 3. SYNC: Merge Real-time Data into Session
-  // Whenever the server sends an update (via socket or initial fetch), 
-  // we update our local session state to match.
+  // This effect runs whenever the liveUser data from the hook changes.
   useEffect(() => {
-    if (liveUser && !Array.isArray(liveUser) && session) {
-      // Only update if the ID matches to prevent cross-user pollution
-      if (liveUser.id === session.id) {
-         setSession(prev => {
-            const newState = { ...prev, ...liveUser };
-            // Persist to local storage to keep state across refreshes
-            localStorage.setItem('user', JSON.stringify(newState));
-            return newState;
-         });
-      }
+    if (liveUser && !Array.isArray(liveUser)) {
+       setSession(prev => {
+          // Ensure we don't wipe the session if liveUser is briefly null during a delete
+          const newSessionData = { ...prev, ...liveUser };
+          localStorage.setItem('user', JSON.stringify(newSessionData));
+          return newSessionData;
+       });
     }
-  }, [liveUser]); // Dependency ensures this runs whenever server data changes
+  }, [liveUser]);
 
   // 4. Loading State
-  // We only consider it loading if we have a session but haven't verified it yet
-  const loading = liveLoading && !!session && !liveUser;
+  const loading = liveLoading && !!session;
 
   // --- ACTIONS ---
 

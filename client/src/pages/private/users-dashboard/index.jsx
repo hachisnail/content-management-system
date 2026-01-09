@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import useRealtimeResource from '../../../hooks/useRealtimeResource';
+import { useRealtimeResource } from '../../../hooks/useRealtimeResource';
 import { useTableControls } from '../../../hooks/useTableControls';
 import { useUserManagement } from './hooks/useUserManagement';
+import api from '../../../api'; 
+import socket from '../../../socket'; // <--- NEW IMPORT for verification
 
 import { UserIdentity, UserRole, UserStatus } from './components/UserTableCells';
 import UserActionsMenu from './components/UserActionsMenu';
@@ -13,7 +15,7 @@ import {
   ConfirmationModal,
   Alert
 } from '../../../components/UI';
-import { UserPlus, Trash2, Users, Clock, XCircle } from 'lucide-react';
+import { UserPlus, Trash2, Users, Clock, XCircle, Zap } from 'lucide-react';
 
 function UserDirectory() {
   const navigate = useNavigate();
@@ -27,7 +29,7 @@ function UserDirectory() {
   // --- 2. DATA FETCHING ---
   
   // A. Active & Disabled Users
-const { 
+  const { 
     data: activeData, 
     meta: activeMeta, 
     loading: activeLoading,
@@ -37,13 +39,11 @@ const {
       ...activeControls.queryParams,
       status: ['active', 'disabled'] 
     },
-    updateStrategy: 'manual', // <--- REQUIRED
-    // Ensure filterFn checks for existence of status
     filterFn: (user) => user && ['active', 'disabled'].includes(user.status)
   });
 
   // B. Pending Users (Invites)
-const { 
+  const { 
     data: pendingData, 
     meta: pendingMeta, 
     loading: pendingLoading
@@ -52,8 +52,6 @@ const {
       ...pendingControls.queryParams,
       status: 'pending' 
     },
-    updateStrategy: 'manual', // <--- REQUIRED
-    // Ensure filterFn handles the check safely
     filterFn: (user) => user && user.status === 'pending'
   });
 
@@ -77,9 +75,45 @@ const {
   } = useUserManagement(allUsers);
 
   useEffect(() => {
-    const interval = setInterval(() => setNow(Date.now()), 1000);
+    const interval = setInterval(() => {
+      setNow(Date.now());
+    }, 60_000); 
     return () => clearInterval(interval);
   }, []);
+
+  // --- DEBUG VERIFICATION (NEW) ---
+  // This helps you verify if this specific page is receiving the broadcast
+  useEffect(() => {
+    const handleUpdate = (data) => {
+        console.log("%c[UserDirectory] Socket Event: users_updated", "color: #00ff00; background: #000; padding: 2px 5px;", data);
+    };
+    const handleCreate = (data) => {
+        console.log("%c[UserDirectory] Socket Event: users_created", "color: #00ff00; background: #000; padding: 2px 5px;", data);
+    };
+    
+    socket.on('users_updated', handleUpdate);
+    socket.on('users_created', handleCreate);
+
+    return () => {
+        socket.off('users_updated', handleUpdate);
+        socket.off('users_created', handleCreate);
+    };
+  }, []);
+
+  // --- DEBUG FUNCTION ---
+  const handleDebugActivityUpdate = async () => {
+    if (!currentUser) return;
+    try {
+      console.log("[UserDirectory] Sending Debug Signal via API...");
+      // Force update the 'last_active' timestamp to NOW via the API
+      // The server is configured to emit 'users_updated' whenever this endpoint is hit
+      await api.updateUser(currentUser.id, { last_active: new Date() });
+      setStatusMsg({ type: 'success', text: 'Debug: Signal sent. Check console for [UserDirectory] logs.' });
+    } catch (err) {
+      setStatusMsg({ type: 'error', text: 'Debug failed: ' + err.message });
+    }
+  };
+
 
   // --- COLUMNS ---
   const getColumns = (isPendingTable = false) => [
@@ -160,9 +194,16 @@ const {
           <h1 className="text-2xl font-bold tracking-tight text-zinc-900">User Management</h1>
           <p className="text-zinc-500 text-sm mt-1">Manage active members and pending invitations.</p>
         </div>
-        <Button variant="primary" icon={UserPlus} onClick={() => navigate(`/users/invite`)}>
-          Invite User
-        </Button>
+        <div className="flex gap-2">
+            {/* DEBUG BUTTON */}
+            <Button variant="secondary" icon={Zap} onClick={handleDebugActivityUpdate}>
+              Debug: Touch Activity
+            </Button>
+
+            <Button variant="primary" icon={UserPlus} onClick={() => navigate(`/users/invite`)}>
+              Invite User
+            </Button>
+        </div>
       </div>
 
       {statusMsg && (
@@ -180,7 +221,7 @@ const {
         <DataTable 
           columns={getColumns(false)} 
           data={activeUsers} 
-          isLoading={activeLoading && activeControls.page === 1}
+          isLoading={activeLoading && activeControls.queryParams.page === 1}
           onSearch={activeControls.setSearch}
           onSort={activeControls.handleSortChange}
           searchPlaceholder="Search active members..."
@@ -193,8 +234,8 @@ const {
           }
           serverSidePagination={{
             totalItems: activeMeta?.totalItems || 0,
-            currentPage: activeControls.page,
-            itemsPerPage: activeControls.limit,
+            currentPage: activeControls.queryParams.page,
+            itemsPerPage: activeControls.queryParams.limit,
             onPageChange: activeControls.setPage
           }}
         />
@@ -211,14 +252,14 @@ const {
         <DataTable 
           columns={getColumns(true)} 
           data={pendingUsers} 
-          isLoading={pendingLoading && pendingControls.page === 1}
+          isLoading={pendingLoading && pendingControls.queryParams.page === 1}
           onSearch={pendingControls.setSearch}
           onSort={pendingControls.handleSortChange}
           searchPlaceholder="Search pending invites..."
           serverSidePagination={{
             totalItems: pendingMeta?.totalItems || 0,
-            currentPage: pendingControls.page,
-            itemsPerPage: pendingControls.limit,
+            currentPage: pendingControls.queryParams.page,
+            itemsPerPage: pendingControls.queryParams.limit,
             onPageChange: pendingControls.setPage
           }}
         />
@@ -235,7 +276,6 @@ const {
         isDangerous={true}
       />
 
-      {/* ... Other modals (Disconnect, Disable, Enable, Bulk) ... */}
       <ConfirmationModal 
         isOpen={!!disconnectTarget}
         onClose={() => setDisconnectTarget(null)}

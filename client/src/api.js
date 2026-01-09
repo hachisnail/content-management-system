@@ -1,45 +1,35 @@
-// client/src/api.js
-import axios from 'axios';
-import { API_BASE_URL } from './config';
+// src/api.js
+import axios from "axios";
+import { API_BASE_URL } from "./config";
 
 const axiosInstance = axios.create({
   baseURL: API_BASE_URL,
   withCredentials: true,
-  headers: {
-    'Content-Type': 'application/json',
-    'Accept': 'application/json',
-  },
-  timeout: 10000, 
+  headers: { "Content-Type": "application/json", Accept: "application/json" },
+  timeout: 10000,
 });
 
-// Request Interceptor
 axiosInstance.interceptors.request.use(
   (config) => config,
   (error) => Promise.reject(error)
 );
 
-// Response Interceptor
 axiosInstance.interceptors.response.use(
   (response) => response.data,
   (error) => {
     if (!error.response) {
-      if (error.code === 'ECONNABORTED') {
-        return Promise.reject(new Error('Request timed out. Server is busy.'));
-      }
-      return Promise.reject(new Error('Network error. Check connection.'));
+      if (error.code === "ECONNABORTED")
+        return Promise.reject(new Error("Request timed out. Server is busy."));
+      return Promise.reject(new Error("Network error. Check connection."));
     }
-
     const { status, config } = error.response;
-    const errorMessage = error.response.data?.message || error.message;
-
-    // Handle 401 Unauthorized
-    if (status === 401 && !config.url.includes('/auth/login')) {
-      // Dispatch a custom event so AuthContext can handle the cleanup
-      // This keeps api.js pure and avoids circular dependencies
-      window.dispatchEvent(new Event('auth:unauthorized'));
+    if (status === 401 && !config.url.includes("/auth/login")) {
+      window.dispatchEvent(new Event("auth:unauthorized"));
     }
-
-    return Promise.reject({ status, message: errorMessage });
+    return Promise.reject({
+      status,
+      message: error.response.data?.message || error.message,
+    });
   }
 );
 
@@ -48,45 +38,25 @@ const api = {
   post: (url, data, config) => axiosInstance.post(url, data, config),
   put: (url, data, config) => axiosInstance.put(url, data, config),
   delete: (url, config) => axiosInstance.delete(url, config),
-  
-  // Login
+
   login: async (email, password) => {
     try {
-      return await axiosInstance.post('/auth/login', { email, password });
+      return await axiosInstance.post("/auth/login", { email, password });
     } catch (error) {
-      throw new Error(error.message || 'Login failed');
+      throw new Error(error.message || "Login failed");
     }
   },
+  logout: async () => await axiosInstance.post("/auth/logout"),
 
-  // Logout - JUST the API call. No redirects here.
-  logout: async () => {
-    return await axiosInstance.post('/auth/logout');
-  },
+  updateUser: async (id, data) => await axiosInstance.put(`/users/${id}`, data),
+  deleteUser: async (id) => await axiosInstance.delete(`/users/${id}`),
 
-  // NEW: Update User Profile
-  updateUser: async (id, data) => {
-    return await axiosInstance.put(`/users/${id}`, data);
-  },
-
-  // NEW: Generic File Upload
-  // NOTE: We don't set Content-Type manually; axios/browser does it for FormData
   uploadFile: async (formData) => {
-    return await axiosInstance.post('/files/upload', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
+    return await axiosInstance.post("/files/upload", formData, {
+      headers: { "Content-Type": "multipart/form-data" },
     });
   },
-  
-  // Helper to get file URL
   getFileUrl: (fileId) => `${API_BASE_URL}/files/${fileId}`,
-
-  updateUser: async (id, data) => {
-    return await axiosInstance.put(`/users/${id}`, data);
-  },
-
-  // --- NEW METHOD ---
-  deleteUser: async (id) => {
-    return await axiosInstance.delete(`/users/${id}`);
-  },
 };
 
 export default api;

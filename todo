@@ -8,7 +8,7 @@ implement user controll
 -change name, contact, role, password, etc.
 
 
-fix UsersDashboard realtime feature
+fix UsersDashboard realtime feature not syncing possible problem useRealtimeResource and index js race condition
 
 done
 useRealtimeResource.jsx is having problems with connections

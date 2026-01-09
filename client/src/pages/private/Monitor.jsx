@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Power, Check, Filter, RefreshCcw, Activity, MoreHorizontal, Trash2, Eye, FileText } from 'lucide-react';
 
 import { formatTimeAgo } from '../../utils/time';
-import useRealtimeResource from '../../hooks/useRealtimeResource';
+import { useRealtimeResource } from '../../hooks/useRealtimeResource';
 import { useTableControls } from '../../hooks/useTableControls'; 
 import socket from '../../socket';
 import { useAuth } from '../../context/AuthContext';

@@ -13,6 +13,7 @@ export const updateUserActivity = async (req, res, next) => {
          if (user) {
            user.last_active = new Date();
            await user.save();
+           
            // Update req.user so next middleware sees fresh data
            req.user.last_active = user.last_active; 
          }
