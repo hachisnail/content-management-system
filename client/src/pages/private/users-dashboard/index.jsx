@@ -68,25 +68,22 @@ function UserDirectory() {
 
   // --- 3. MANAGEMENT LOGIC ---
   const {
-    selectedUsers,
-    setSelectedUsers,
-    disconnectTarget,
-    setDisconnectTarget,
-    disableTarget,
-    setDisableTarget,
-    enableTarget,
-    setEnableTarget,
-    revokeTarget,
-    setRevokeTarget,
-    showBulkConfirm,
-    setShowBulkConfirm,
-    statusMsg,
-    setStatusMsg,
+    activeModal,
+    closeModal,
+    promptDisconnect,
+    promptDisable,
+    promptEnable,
+    promptRevoke,
+    promptBulkDisconnect,
     confirmDisconnect,
     confirmDisable,
     confirmEnable,
-    confirmBulkDisconnect,
     confirmRevoke,
+    confirmBulkDisconnect,
+    selectedUsers,
+    setSelectedUsers,
+    statusMsg,
+    setStatusMsg,
     currentUser,
     hasPermission,
     PERMISSIONS,
@@ -97,7 +94,6 @@ function UserDirectory() {
     return () => clearInterval(interval);
   }, []);
 
-  // Debug Listeners
   useEffect(() => {
     const handleUpdate = (data) =>
       console.log(
@@ -149,9 +145,9 @@ function UserDirectory() {
                 currentUser={currentUser}
                 hasPermission={hasPermission}
                 PERMISSIONS={PERMISSIONS}
-                onDisconnect={setDisconnectTarget}
-                onDisable={setDisableTarget}
-                onEnable={setEnableTarget}
+                onDisconnect={promptDisconnect}
+                onDisable={promptDisable}
+                onEnable={promptEnable}
               />
             ),
           },
@@ -178,14 +174,13 @@ function UserDirectory() {
             accessor: "id",
             render: (user) => (
               <div className="flex justify-start">
-                {/* NEW: Check CREATE_USERS permission for revocation (inviter logic) */}
                 {hasPermission(currentUser, PERMISSIONS.CREATE_USERS) && (
                   <Button
                     variant="secondary"
                     size="xs"
                     icon={XCircle}
                     className="text-red-600 hover:bg-red-50 border-red-100 hover:text-white hover:border-red-600"
-                    onClick={() => setRevokeTarget(user.id)}
+                    onClick={() => promptRevoke(user.id)}
                   >
                     Revoke
                   </Button>
@@ -202,6 +197,7 @@ function UserDirectory() {
 
   return (
     <div className="space-y-12 animate-in fade-in duration-500">
+      {/* HEADER */}
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 border-b border-zinc-200 pb-6">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-zinc-900">
@@ -221,8 +217,6 @@ function UserDirectory() {
               Debug: Touch Activity
             </Button>
           )}
-
-          {/* UPDATED PERMISSION CHECK: CREATE_USERS */}
           {hasPermission(currentUser, PERMISSIONS.CREATE_USERS) && (
             <Button
               variant="primary"
@@ -243,7 +237,7 @@ function UserDirectory() {
         />
       )}
 
-      {/* --- TABLE 1: ACTIVE MEMBERS (Wrapped) --- */}
+      {/* ACTIVE USERS TABLE */}
       <ComponentErrorBoundary title="Active Directory Failed">
         <div className="space-y-4">
           <div className="flex items-center gap-2 text-zinc-800 font-bold">
@@ -263,7 +257,6 @@ function UserDirectory() {
             onSearch={activeControls.setSearch}
             onSort={activeControls.handleSortChange}
             searchPlaceholder="Search active members..."
-            // Updated Permission for Bulk Selection
             enableMultiSelect={hasPermission(
               currentUser,
               PERMISSIONS.DISCONNECT_USERS
@@ -274,7 +267,7 @@ function UserDirectory() {
                 variant="danger"
                 size="sm"
                 icon={Trash2}
-                onClick={() => setShowBulkConfirm(true)}
+                onClick={promptBulkDisconnect}
               >
                 Disconnect ({selectedUsers.length})
               </Button>
@@ -289,7 +282,7 @@ function UserDirectory() {
         </div>
       </ComponentErrorBoundary>
 
-      {/* --- TABLE 2: PENDING INVITATIONS --- */}
+      {/* PENDING USERS TABLE */}
       <ComponentErrorBoundary title="Invitations Table Failed">
         <div className="space-y-4">
           <div className="flex items-center gap-2 text-zinc-800 font-bold">
@@ -319,51 +312,67 @@ function UserDirectory() {
         </div>
       </ComponentErrorBoundary>
 
-      {/* Modals remain the same */}
-      <ConfirmationModal
-        isOpen={!!revokeTarget}
-        onClose={() => setRevokeTarget(null)}
-        onConfirm={confirmRevoke}
-        title="Revoke Invitation?"
-        message="Are you sure? This will permanently delete the invitation."
-        confirmLabel="Revoke & Delete"
-        isDangerous={true}
-      />
-      <ConfirmationModal
-        isOpen={!!disconnectTarget}
-        onClose={() => setDisconnectTarget(null)}
-        onConfirm={confirmDisconnect}
-        title="Disconnect User?"
-        message="This will immediately terminate the user's active session."
-        confirmLabel="Force Disconnect"
-        isDangerous={true}
-      />
-      <ConfirmationModal
-        isOpen={!!disableTarget}
-        onClose={() => setDisableTarget(null)}
-        onConfirm={confirmDisable}
-        title="Disable Account?"
-        message="This will disconnect the user and prevent them from logging in again."
-        confirmLabel="Disable Account"
-        isDangerous={true}
-      />
-      <ConfirmationModal
-        isOpen={!!enableTarget}
-        onClose={() => setEnableTarget(null)}
-        onConfirm={confirmEnable}
-        title="Re-enable Account?"
-        message="This user will be allowed to log in again immediately."
-        confirmLabel="Enable Account"
-      />
-      <ConfirmationModal
-        isOpen={showBulkConfirm}
-        onClose={() => setShowBulkConfirm(false)}
-        onConfirm={confirmBulkDisconnect}
-        title="Bulk Disconnect"
-        message={`Are you sure you want to disconnect ${selectedUsers.length} users?`}
-        confirmLabel="Disconnect All"
-        isDangerous={true}
-      />
+      {/* --- CONSOLIDATED MODALS --- */}
+      {/* Ensures only one is rendered at a time */}
+
+      {activeModal.type === "REVOKE" && (
+        <ConfirmationModal
+          isOpen={true}
+          onClose={closeModal}
+          onConfirm={confirmRevoke}
+          title="Revoke Invitation?"
+          message="Are you sure? This will permanently delete the invitation."
+          confirmLabel="Revoke & Delete"
+          isDangerous={true}
+        />
+      )}
+
+      {activeModal.type === "DISCONNECT" && (
+        <ConfirmationModal
+          isOpen={true}
+          onClose={closeModal}
+          onConfirm={confirmDisconnect}
+          title="Disconnect User?"
+          message="This will immediately terminate the user's active session."
+          confirmLabel="Force Disconnect"
+          isDangerous={true}
+        />
+      )}
+
+      {activeModal.type === "DISABLE" && (
+        <ConfirmationModal
+          isOpen={true}
+          onClose={closeModal}
+          onConfirm={confirmDisable}
+          title="Disable Account?"
+          message="This will disconnect the user and prevent them from logging in again."
+          confirmLabel="Disable Account"
+          isDangerous={true}
+        />
+      )}
+
+      {activeModal.type === "ENABLE" && (
+        <ConfirmationModal
+          isOpen={true}
+          onClose={closeModal}
+          onConfirm={confirmEnable}
+          title="Re-enable Account?"
+          message="This user will be allowed to log in again immediately."
+          confirmLabel="Enable Account"
+        />
+      )}
+
+      {activeModal.type === "BULK_DISCONNECT" && (
+        <ConfirmationModal
+          isOpen={true}
+          onClose={closeModal}
+          onConfirm={confirmBulkDisconnect}
+          title="Bulk Disconnect"
+          message={`Are you sure you want to disconnect ${selectedUsers.length} users?`}
+          confirmLabel="Disconnect All"
+          isDangerous={true}
+        />
+      )}
     </div>
   );
 }

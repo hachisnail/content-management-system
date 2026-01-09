@@ -10,7 +10,6 @@ import {
 } from '../config/permissions.js';
 import { buildQueryOptions } from '../utils/queryBuilder.js';
 
-// Helper: Check permission inside service
 const checkPerm = (userRoles, permission) => {
   if (!userRoles) return false;
   const roles = Array.isArray(userRoles) ? userRoles : [userRoles];
@@ -19,8 +18,6 @@ const checkPerm = (userRoles, permission) => {
     (ROLE_DEFINITIONS[role] || []).includes(permission),
   );
 };
-
-// ... (keep getInvitationTemplate, createUser, completeRegistration as is) ...
 
 export const updateUser = async (id, updateData, initiatorEmail) => {
   const user = await db.User.findByPk(id);
@@ -31,14 +28,21 @@ export const updateUser = async (id, updateData, initiatorEmail) => {
 
   // --- PERMISSION CHECKING ---
   const iRoles = initiator.role;
-  const isSelf = user.id === initiator.id;
+  const targetRoles = user.role || [];
 
+  const isInitiatorSuper = iRoles.includes('super_admin');
+  const isTargetSuper = targetRoles.includes('super_admin');
+
+  // 1. SECURITY FIX: Prevent Admins from modifying Super Admins
+  if (isTargetSuper && !isInitiatorSuper) {
+    throw new Error('Access Denied: You cannot modify a Super Admin account.');
+  }
+
+  const isSelf = user.id === initiator.id;
   const canManageUsers = checkPerm(iRoles, PERMISSIONS.MANAGE_USERS);
   const canManageRoles = checkPerm(iRoles, PERMISSIONS.MANAGE_USER_ROLES);
   const canManageStatus = checkPerm(iRoles, PERMISSIONS.MANAGE_USER_STATUS);
-  const isSuperAdmin = iRoles.includes('super_admin');
 
-  // 1. Basic Fields (Self OR Manager)
   const basicFields = [
     'firstName',
     'lastName',
@@ -52,14 +56,11 @@ export const updateUser = async (id, updateData, initiatorEmail) => {
     allowedFields = [...basicFields];
   }
 
-  // 2. Sensitive Fields (Specific Permissions)
   if (canManageRoles) allowedFields.push('role');
   if (canManageStatus) allowedFields.push('status');
 
-  // 3. Identifiers (Super Admin Only)
-  if (isSuperAdmin) {
+  if (isInitiatorSuper) {
     allowedFields.push('email', 'username');
-    // Ensure Super Admin has everything
     allowedFields = [
       ...new Set([...allowedFields, ...basicFields, 'role', 'status']),
     ];
@@ -69,9 +70,6 @@ export const updateUser = async (id, updateData, initiatorEmail) => {
   delete beforeState.password;
   delete beforeState.socketId;
 
-  // --- APPLY UPDATES ---
-
-  // Normalize 'roles' input to 'role'
   if (updateData.roles && !updateData.role) updateData.role = updateData.roles;
 
   allowedFields.forEach((field) => {
@@ -80,13 +78,11 @@ export const updateUser = async (id, updateData, initiatorEmail) => {
     }
   });
 
-  // Validate Roles if changed
   if (user.changed('role')) {
     const rawRole = user.getDataValue('role');
     const roleArray = Array.isArray(rawRole) ? rawRole : [rawRole];
     const validRoleList = getAllowedRoles();
 
-    // Safety: Ensure valid roles
     const invalidRoles = roleArray.filter((r) => !validRoleList.includes(r));
     if (invalidRoles.length > 0)
       throw new Error(`Invalid roles: ${invalidRoles.join(', ')}`);
@@ -94,7 +90,7 @@ export const updateUser = async (id, updateData, initiatorEmail) => {
     user.setDataValue('role', roleArray);
   }
 
-  user.last_active = new Date(); // Touch activity
+  user.last_active = new Date();
 
   await user.save();
 
@@ -110,11 +106,26 @@ export const updateUser = async (id, updateData, initiatorEmail) => {
   return findById(user.id);
 };
 
-// ... (keep deleteUser, findById, findAll as is) ...
-// (Ensure existing exports are maintained)
 export const deleteUser = async (id, initiatorEmail) => {
   const user = await db.User.findByPk(id);
   if (!user) throw new Error('User not found');
+
+  const initiator = await db.User.findOne({ where: { email: initiatorEmail } });
+
+  // --- SECURITY FIX: Hierarchy Check for Deletion ---
+  if (initiator) {
+    const iRoles = initiator.role || [];
+    const tRoles = user.role || [];
+
+    const isInitiatorSuper = iRoles.includes('super_admin');
+    const isTargetSuper = tRoles.includes('super_admin');
+
+    if (isTargetSuper && !isInitiatorSuper) {
+      throw new Error(
+        'Access Denied: You cannot delete a Super Admin account.',
+      );
+    }
+  }
 
   const userEmail = user.email;
   const beforeState = user.toJSON();

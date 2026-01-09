@@ -74,13 +74,9 @@ const OFFLINE_GRACE_PERIOD_MS = 2000;
 const forcedDisconnects = new Set();
 
 export const initSocket = (httpServer, sessionMiddleware) => {
-  // QUEUE SYSTEM: Connection State Recovery
-  // This is the server-side buffer logic.
   const io = new Server(httpServer, {
     cors: corsOptions,
     connectionStateRecovery: {
-      // Buffer packets for 2 minutes. If client reconnects within 2 mins,
-      // all missed "users_updated" or "donations_created" events are sent instantly.
       maxDisconnectionDuration: 2 * 60 * 1000,
       skipMiddlewares: false,
     },
@@ -95,7 +91,7 @@ export const initSocket = (httpServer, sessionMiddleware) => {
   io.use((socket, next) => {
     if (socket.request.user) {
       socket.user = socket.request.user;
-      socket.data.user = socket.request.user; // Required for recovery
+      socket.data.user = socket.request.user;
       socket.isGuest = false;
     } else {
       socket.isGuest = true;
@@ -170,7 +166,6 @@ export const initSocket = (httpServer, sessionMiddleware) => {
           user.isOnline = true;
           user.last_active = new Date();
           await user.save();
-          // Emit immediate updates
           socket.emit('users_updated', user.toJSON());
           socket.emit('log', { message: 'Welcome!', user: user.email });
         }
@@ -184,15 +179,12 @@ export const initSocket = (httpServer, sessionMiddleware) => {
       let baseResource = resourceName;
       let specificId = null;
 
-if (resourceName.includes('_')) {
+      if (resourceName.includes('_')) {
         const parts = resourceName.split('_');
         const potentialId = parts[parts.length - 1];
-        
-        // FIX: Allow UUIDs (strings) or Integers
-        // We assume anything after the last underscore is an ID
         if (potentialId) {
-          specificId = potentialId; 
-          baseResource = parts.slice(0, -1).join('_'); 
+          specificId = potentialId;
+          baseResource = parts.slice(0, -1).join('_');
         }
       }
 
@@ -201,7 +193,7 @@ if (resourceName.includes('_')) {
       if (requiredPerm === undefined) {
         allowed = false;
       } else if (requiredPerm === null) {
-        allowed = true; // Public
+        allowed = true;
       } else if (requiredPerm === 'AUTHENTICATED') {
         allowed = !socket.isGuest;
       } else {
@@ -259,9 +251,31 @@ if (resourceName.includes('_')) {
         hasPermission(socket.user, PERMISSIONS.DISCONNECT_USERS)
       ) {
         try {
-          forcedDisconnects.add(userId);
+          // --- SECURITY CHECK: HIERARCHY ---
           const targetUser = await db.User.findByPk(userId);
+
           if (targetUser) {
+            // Check roles
+            const initiatorRoles = Array.isArray(socket.user.role)
+              ? socket.user.role
+              : [socket.user.role];
+            const targetRoles = Array.isArray(targetUser.role)
+              ? targetUser.role
+              : [targetUser.role];
+
+            const isInitiatorSuper = initiatorRoles.includes('super_admin');
+            const isTargetSuper = targetRoles.includes('super_admin');
+
+            // If Target is Super Admin, Initiator MUST be Super Admin
+            if (isTargetSuper && !isInitiatorSuper) {
+              return socket.emit('log', {
+                message:
+                  'Access Denied: You cannot disconnect a Super Admin account.',
+                type: 'error',
+              });
+            }
+
+            forcedDisconnects.add(userId);
             io.to(`user:${targetUser.id}`).emit('force_logout', {
               message: 'Disconnected by admin.',
             });

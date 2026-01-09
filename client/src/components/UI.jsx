@@ -14,55 +14,61 @@ import {
   Filter,
   Loader2,
   ArrowUpDown,
+  MoreVertical,
 } from "lucide-react";
-import api from '../api';
+import api from "../api";
 
-// --- 1. DROPDOWN (New Component for Native Filters) ---
-export const Dropdown = ({ trigger, children, align = "right", matchWidth = false }) => {
+// --- 1. DROPDOWN (Updated with Close Handler) ---
+export const Dropdown = ({
+  trigger,
+  children,
+  align = "right",
+  matchWidth = false,
+}) => {
   const [isOpen, setIsOpen] = useState(false);
   const [coords, setCoords] = useState({});
-  const [placement, setPlacement] = useState('bottom');
+  const [placement, setPlacement] = useState("bottom");
   const triggerRef = useRef(null);
-  
+
   const dropdownId = useRef(Math.random().toString(36).substr(2, 9)).current;
 
   const toggleOpen = (e) => {
     e.stopPropagation();
 
     if (!isOpen) {
-      document.dispatchEvent(new CustomEvent("ui:dropdown:open", { detail: dropdownId }));
+      document.dispatchEvent(
+        new CustomEvent("ui:dropdown:open", { detail: dropdownId })
+      );
 
       if (triggerRef.current) {
         const rect = triggerRef.current.getBoundingClientRect();
         const viewportHeight = window.innerHeight;
         const spaceBelow = viewportHeight - rect.bottom;
-        const menuHeightEstimate = 220; 
+        const menuHeightEstimate = 220;
 
-        // Smart Vertical Logic: Open UP if 'top' requested OR not enough space below
-        const shouldOpenUp = align === 'top' || (spaceBelow < menuHeightEstimate && rect.top > spaceBelow);
+        const shouldOpenUp =
+          align === "top" ||
+          (spaceBelow < menuHeightEstimate && rect.top > spaceBelow);
 
         const newCoords = {
-          left: rect.left, // Default to Left alignment
-          width: matchWidth ? rect.width : 'auto' // Optional: Match trigger width
+          left: rect.left,
+          width: matchWidth ? rect.width : "auto",
         };
 
-        // Horizontal Logic
         let transform = "none";
-        if (align === 'right') {
-            newCoords.left = rect.right;
-            transform = "translateX(-100%)";
-        } 
-        // Note: For 'top', we default to 'left' alignment (standard for footers), 
-        // unless 'right' is explicitly asked.
+        if (align === "right") {
+          newCoords.left = rect.right;
+          transform = "translateX(-100%)";
+        }
 
         newCoords.transform = transform;
 
         if (shouldOpenUp) {
           newCoords.bottom = viewportHeight - rect.top + 6;
-          setPlacement('top');
+          setPlacement("top");
         } else {
           newCoords.top = rect.bottom + 6;
-          setPlacement('bottom');
+          setPlacement("bottom");
         }
 
         setCoords(newCoords);
@@ -73,7 +79,9 @@ export const Dropdown = ({ trigger, children, align = "right", matchWidth = fals
 
   useEffect(() => {
     const handleGlobalClick = () => setIsOpen(false);
-    const handleOtherOpen = (e) => { if (e.detail !== dropdownId) setIsOpen(false); };
+    const handleOtherOpen = (e) => {
+      if (e.detail !== dropdownId) setIsOpen(false);
+    };
 
     if (isOpen) {
       window.addEventListener("click", handleGlobalClick);
@@ -92,8 +100,11 @@ export const Dropdown = ({ trigger, children, align = "right", matchWidth = fals
 
   return (
     <>
-      {/* TRIGGER: Changed from inline-block to block w-full to fill containers */}
-      <div ref={triggerRef} onClick={toggleOpen} className="block w-full cursor-pointer relative">
+      <div
+        ref={triggerRef}
+        onClick={toggleOpen}
+        className="block w-full cursor-pointer relative"
+      >
         {trigger}
       </div>
 
@@ -101,18 +112,27 @@ export const Dropdown = ({ trigger, children, align = "right", matchWidth = fals
         createPortal(
           <div
             className={`fixed z-[9999] bg-white rounded-xl shadow-xl border border-zinc-100 min-w-[160px] 
-              ${placement === 'top' ? 'origin-bottom animate-in slide-in-from-bottom-2' : 'origin-top animate-in slide-in-from-top-2'} 
+              ${
+                placement === "top"
+                  ? "origin-bottom animate-in slide-in-from-bottom-2"
+                  : "origin-top animate-in slide-in-from-top-2"
+              } 
               fade-in zoom-in-95 duration-100`}
             style={{
               top: coords.top,
               bottom: coords.bottom,
               left: coords.left,
-              width: coords.width, // Dynamic width
+              width: coords.width,
               transform: coords.transform,
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="py-1">{children}</div>
+            <div className="py-1">
+              {/* FIX: Support render props to allow children to close the menu */}
+              {typeof children === "function"
+                ? children({ close: () => setIsOpen(false) })
+                : children}
+            </div>
           </div>,
           document.body
         )}
@@ -146,13 +166,8 @@ export const DataTable = ({
   const [sortConfig, setSortConfig] = useState({ key: null, direction: "asc" });
   const [localPage, setLocalPage] = useState(1);
   const [selectedIds, setSelectedIds] = useState(new Set());
-  
+  const [searchValue, setSearchValue] = useState("");
 
-  // NEW: State to keep the search text in the input persistent while typing
-  const [searchValue, setSearchValue] = useState(""); 
-  
-
-  // 1. Determine active pagination source
   const itemsPerPage = serverSidePagination?.itemsPerPage || 10;
   const currentPage = serverSidePagination
     ? serverSidePagination.currentPage
@@ -161,7 +176,6 @@ export const DataTable = ({
     ? serverSidePagination.onPageChange
     : setLocalPage;
 
-  // 2. Determine true total items
   const totalItems = serverSidePagination
     ? serverSidePagination.totalItems
     : data.length;
@@ -176,9 +190,7 @@ export const DataTable = ({
     }
   }, [serverSidePagination?.search]);
 
-  // 3. Process Data
   const paginatedData = useMemo(() => {
-    // If server-side is active, skip local manipulation entirely
     if (serverSidePagination) return data;
 
     let items = [...data];
@@ -202,8 +214,8 @@ export const DataTable = ({
 
   const handleSearchChange = (e) => {
     const value = e.target.value;
-    setSearchValue(value); // Update UI immediately (no flash)
-    onSearch(value); // Send to parent hook (debounced)
+    setSearchValue(value);
+    onSearch(value);
   };
 
   const handleClearSearch = () => {
@@ -225,8 +237,6 @@ export const DataTable = ({
     }
 
     setSortConfig(newConfig);
-
-    // FIX: Trigger the server-side update
     if (onSort) {
       onSort(newConfig.key, newConfig.direction);
     }
@@ -254,7 +264,6 @@ export const DataTable = ({
   const handleJumpSubmit = (e) => {
     e.preventDefault();
     const targetPage = parseInt(jumpValue);
-    // Validation to ensure the target is within the valid range
     if (!isNaN(targetPage) && targetPage >= 1 && targetPage <= totalPages) {
       onPageChange(targetPage);
     }
@@ -321,7 +330,6 @@ export const DataTable = ({
             onChange={handleSearchChange}
           />
 
-          {/* NEW: Clear button that appears only when there is text */}
           {searchValue && (
             <button
               onClick={handleClearSearch}
@@ -392,7 +400,6 @@ export const DataTable = ({
                 return (
                   <tr
                     key={row.id || rIdx}
-                    // Added professional hover and selection transitions
                     className={`group transition-all duration-200 ease-in-out border-l-2 ${
                       isSelected
                         ? "bg-indigo-50/30 border-indigo-500"
@@ -442,7 +449,6 @@ export const DataTable = ({
         </span>
 
         <div className="flex gap-2 w-full sm:w-auto justify-between sm:justify-end items-center">
-          {/* Previous Button: Disabled if on first page OR if only one page exists */}
           <button
             className="px-3 py-1.5 border border-zinc-200 rounded-md hover:bg-zinc-50 hover:text-zinc-900 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent flex items-center gap-1 transition-all active:scale-95"
             disabled={!canGoPrev || isOnlyOnePage}
@@ -451,16 +457,14 @@ export const DataTable = ({
             <ChevronLeft size={14} /> Prev
           </button>
 
-          {/* Jump Indicator: Disabled if only one page exists */}
           <div className="relative flex items-center justify-center min-w-[110px] h-8">
             {!isJumping ? (
               <button
                 onClick={() => {
-                  if (isOnlyOnePage) return; // Prevent jumping if only one page
+                  if (isOnlyOnePage) return;
                   setJumpValue(currentPage.toString());
                   setIsJumping(true);
                 }}
-                // Add disabled styling if only one page exists
                 className={`px-3 py-1 font-medium rounded-md border border-transparent transition-all whitespace-nowrap ${
                   isOnlyOnePage
                     ? "text-zinc-300 cursor-not-allowed"
@@ -489,7 +493,6 @@ export const DataTable = ({
             )}
           </div>
 
-          {/* Next Button: Disabled if on last page OR if only one page exists */}
           <button
             className="px-3 py-1.5 border border-zinc-200 rounded-md hover:bg-zinc-50 hover:text-zinc-900 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent flex items-center gap-1 transition-all active:scale-95"
             disabled={!canGoNext || isOnlyOnePage}
@@ -503,7 +506,7 @@ export const DataTable = ({
   );
 };
 
-// --- 1. CARDS & CONTAINERS ---
+// --- CARDS & BUTTONS ---
 export const Card = ({ children, className = "", title, action, footer }) => (
   <div
     className={`bg-white border border-zinc-200 rounded-lg shadow-sm flex flex-col ${className}`}
@@ -522,6 +525,7 @@ export const Card = ({ children, className = "", title, action, footer }) => (
     )}
   </div>
 );
+
 export const Button = ({
   children,
   variant = "primary",
@@ -575,7 +579,6 @@ export const Button = ({
   );
 };
 
-// --- Updated Input with Focus Glow ---
 export const Input = ({
   label,
   icon: Icon,
@@ -611,15 +614,10 @@ export const Input = ({
   </div>
 );
 
-/**
- * Reusable 3-Dots Action Menu
- * Handles opening/closing logic automatically.
- */
 export const ActionMenu = ({ actions = [] }) => {
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef(null);
 
-  // Close on click outside
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (menuRef.current && !menuRef.current.contains(event.target)) {
@@ -648,7 +646,6 @@ export const ActionMenu = ({ actions = [] }) => {
         <div className="absolute right-0 mt-2 w-48 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 z-50 focus:outline-none animate-in fade-in zoom-in duration-75">
           <div className="py-1">
             {actions.map((action, index) => {
-              // Skip if hidden
               if (action.show === false) return null;
 
               return (
@@ -656,7 +653,7 @@ export const ActionMenu = ({ actions = [] }) => {
                   key={index}
                   onClick={(e) => {
                     e.stopPropagation();
-                    setIsOpen(false); // CRITICAL: Close menu immediately before action
+                    setIsOpen(false);
                     action.onClick();
                   }}
                   disabled={action.disabled}
@@ -713,7 +710,6 @@ export const Select = ({ label, options = [], error, ...props }) => (
   </div>
 );
 
-// --- 4. BADGES ---
 export const Badge = ({ children, variant = "neutral", className = "" }) => {
   const styles = {
     success: "bg-green-50 text-green-700 border-green-200",
@@ -731,7 +727,6 @@ export const Badge = ({ children, variant = "neutral", className = "" }) => {
   );
 };
 
-// --- 5. ALERTS ---
 export const Alert = ({
   type = "info",
   title,
@@ -789,7 +784,6 @@ export const Alert = ({
   );
 };
 
-// --- 7. MODALS (Generic & Specific) ---
 export const Modal = ({
   isOpen,
   onClose,
@@ -800,7 +794,6 @@ export const Modal = ({
 }) => {
   if (!isOpen) return null;
 
-  // Size configurations
   const sizes = {
     sm: "max-w-sm",
     md: "max-w-lg",
@@ -838,7 +831,6 @@ export const Modal = ({
   );
 };
 
-// A Pre-built Confirmation Modal
 export const ConfirmationModal = ({
   isOpen,
   onClose,
@@ -874,56 +866,51 @@ export const ConfirmationModal = ({
   </Modal>
 );
 
-
 export const Avatar = ({ user, size = "md", className = "" }) => {
-  const [imgError, setImgError] = useState(false); // New state to track if image fails
-  
+  const [imgError, setImgError] = useState(false);
+
   const sizeClasses = {
     xs: "w-6 h-6 text-[10px]",
     sm: "w-8 h-8 text-xs",
     md: "w-10 h-10 text-sm",
     lg: "w-16 h-16 text-xl",
-    xl: "w-32 h-32 text-4xl"
+    xl: "w-32 h-32 text-4xl",
   };
 
-  // 1. Get Image URL
-  const imageUrl = user?.profilePicture?.id 
-    ? api.getFileUrl(user.profilePicture.id) 
+  const imageUrl = user?.profilePicture?.id
+    ? api.getFileUrl(user.profilePicture.id)
     : null;
 
-  // 2. Robust Initials Logic
-  // Tries: First Name > Username > Email > Fallback
   const getInitials = () => {
     if (!user) return "?";
-    
+
     if (user.firstName) {
-        return `${user.firstName[0]}${user.lastName?.[0] || ''}`.toUpperCase();
+      return `${user.firstName[0]}${user.lastName?.[0] || ""}`.toUpperCase();
     }
-    
+
     if (user.username) {
-        return user.username.substring(0, 2).toUpperCase();
+      return user.username.substring(0, 2).toUpperCase();
     }
-    
+
     if (user.email) {
-        return user.email.substring(0, 2).toUpperCase();
+      return user.email.substring(0, 2).toUpperCase();
     }
-    
+
     return "?";
   };
 
   return (
-    <div className={`relative inline-block rounded-full overflow-hidden bg-zinc-100 border border-zinc-200 shrink-0 ${sizeClasses[size]} ${className}`}>
-      
-      {/* Show Image only if URL exists AND no error occurred */}
+    <div
+      className={`relative inline-block rounded-full overflow-hidden bg-zinc-100 border border-zinc-200 shrink-0 ${sizeClasses[size]} ${className}`}
+    >
       {imageUrl && !imgError ? (
-        <img 
-          src={imageUrl} 
-          alt="Profile" 
+        <img
+          src={imageUrl}
+          alt="Profile"
           className="w-full h-full object-cover"
-          onError={() => setImgError(true)} 
+          onError={() => setImgError(true)}
         />
       ) : (
-        // Fallback: Initials (Always visible if image missing/broken)
         <div className="absolute inset-0 flex items-center justify-center font-bold text-zinc-500 bg-zinc-100 select-none">
           {getInitials()}
         </div>

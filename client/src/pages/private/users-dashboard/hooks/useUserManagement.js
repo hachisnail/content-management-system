@@ -1,127 +1,194 @@
-import { useState } from 'react';
-import socket from '../../../../socket';
-import api from '../../../../api'; // Ensure this has deleteUser
-import { useAuth } from '../../../../context/AuthContext';
-import { useConfig } from '../../../../context/ConfigContext';
+import { useState } from "react";
+import socket from "../../../../socket";
+import api from "../../../../api";
+import { useAuth } from "../../../../context/AuthContext";
+import { useConfig } from "../../../../context/ConfigContext";
 
 export const useUserManagement = (users = []) => {
   const { user: currentUser } = useAuth();
   const { hasPermission, PERMISSIONS } = useConfig();
-  
-  // --- STATE ---
-  // Active User Actions
-  const [disconnectTarget, setDisconnectTarget] = useState(null);
-  const [disableTarget, setDisableTarget] = useState(null);
-  const [enableTarget, setEnableTarget] = useState(null);
-  
-  // Invite Actions (NEW)
-  const [revokeTarget, setRevokeTarget] = useState(null);
 
-  // Bulk Actions
-  const [showBulkConfirm, setShowBulkConfirm] = useState(false);
+  // --- SINGLE SOURCE OF TRUTH FOR MODALS ---
+  // type: 'DISCONNECT' | 'DISABLE' | 'ENABLE' | 'REVOKE' | 'BULK_DISCONNECT' | null
+  const [activeModal, setActiveModal] = useState({
+    type: null,
+    targetId: null,
+  });
+
   const [selectedUsers, setSelectedUsers] = useState([]);
-  
-  // Feedback
   const [statusMsg, setStatusMsg] = useState(null);
 
-  // --- ACTIONS ---
+  // --- HELPERS ---
+  const isSuperAdmin = currentUser?.role?.includes("super_admin");
 
-  // 1. Force Disconnect (Active Users)
+  const isProtected = (targetId) => {
+    const targetUser = users.find((u) => u.id === targetId);
+    if (!targetUser) return false;
+    const targetIsSuper = targetUser.role?.includes("super_admin");
+    return targetIsSuper && !isSuperAdmin;
+  };
+
+  const closeModal = () => setActiveModal({ type: null, targetId: null });
+
+  // --- TRIGGERS (Passed to UI) ---
+  const promptDisconnect = (id) =>
+    setActiveModal({ type: "DISCONNECT", targetId: id });
+  const promptDisable = (id) =>
+    setActiveModal({ type: "DISABLE", targetId: id });
+  const promptEnable = (id) => setActiveModal({ type: "ENABLE", targetId: id });
+  const promptRevoke = (id) => setActiveModal({ type: "REVOKE", targetId: id });
+  const promptBulkDisconnect = () =>
+    setActiveModal({ type: "BULK_DISCONNECT", targetId: null });
+
+  // --- EXECUTION HANDLERS ---
+
+  // 1. Force Disconnect
   const confirmDisconnect = () => {
-    if (disconnectTarget) {
-      socket.emit('force_disconnect_user', { userId: disconnectTarget });
-      setDisconnectTarget(null);
-      setStatusMsg({ type: 'success', text: 'User disconnected successfully.' });
+    const { targetId } = activeModal;
+    if (targetId) {
+      if (isProtected(targetId)) {
+        setStatusMsg({
+          type: "error",
+          text: "Forbidden: You cannot disconnect a Super Admin.",
+        });
+      } else {
+        socket.emit("force_disconnect_user", { userId: targetId });
+        setStatusMsg({
+          type: "success",
+          text: "User disconnected successfully.",
+        });
+      }
+      closeModal();
     }
   };
 
-  // 2. Disable Account (Active Users)
+  // 2. Disable Account
   const confirmDisable = async () => {
-    if (disableTarget) {
+    const { targetId } = activeModal;
+    if (targetId) {
+      if (isProtected(targetId)) {
+        setStatusMsg({
+          type: "error",
+          text: "Forbidden: You cannot disable a Super Admin.",
+        });
+        closeModal();
+        return;
+      }
+
       try {
-        socket.emit('force_disconnect_user', { userId: disableTarget });
-        await api.updateUser(disableTarget, { status: 'disabled' });
-        setStatusMsg({ type: 'success', text: 'Account disabled and session terminated.' });
+        socket.emit("force_disconnect_user", { userId: targetId });
+        await api.updateUser(targetId, { status: "disabled" });
+        setStatusMsg({
+          type: "success",
+          text: "Account disabled and session terminated.",
+        });
       } catch (err) {
-        setStatusMsg({ type: 'error', text: 'Failed to disable account.' });
+        setStatusMsg({ type: "error", text: "Failed to disable account." });
       } finally {
-        setDisableTarget(null);
+        closeModal();
       }
     }
   };
 
-  // 3. Enable Account (Disabled Users)
+  // 3. Enable Account
   const confirmEnable = async () => {
-    if (enableTarget) {
+    const { targetId } = activeModal;
+    if (targetId) {
+      if (isProtected(targetId)) {
+        setStatusMsg({ type: "error", text: "Forbidden: Restricted account." });
+        closeModal();
+        return;
+      }
+
       try {
-        await api.updateUser(enableTarget, { status: 'active' });
-        setStatusMsg({ type: 'success', text: 'Account re-enabled successfully.' });
+        await api.updateUser(targetId, { status: "active" });
+        setStatusMsg({
+          type: "success",
+          text: "Account re-enabled successfully.",
+        });
       } catch (err) {
-        setStatusMsg({ type: 'error', text: 'Failed to enable account.' });
+        setStatusMsg({ type: "error", text: "Failed to enable account." });
       } finally {
-        setEnableTarget(null);
+        closeModal();
       }
     }
   };
 
-  // 4. Revoke Invitation (Pending Users) - NEW
+  // 4. Revoke Invitation
   const confirmRevoke = async () => {
-    if (revokeTarget) {
+    const { targetId } = activeModal;
+    if (targetId) {
       try {
-        // PERMANENTLY DELETE the user record (invitation)
-        await api.deleteUser(revokeTarget);
-        setStatusMsg({ type: 'success', text: 'Invitation revoked and user record removed.' });
+        await api.deleteUser(targetId);
+        setStatusMsg({
+          type: "success",
+          text: "Invitation revoked and user record removed.",
+        });
       } catch (err) {
-        setStatusMsg({ type: 'error', text: err.message || 'Failed to revoke invitation.' });
+        setStatusMsg({
+          type: "error",
+          text: err.message || "Failed to revoke invitation.",
+        });
       } finally {
-        setRevokeTarget(null);
+        closeModal();
       }
     }
   };
 
   // 5. Bulk Disconnect
   const confirmBulkDisconnect = () => {
-    const isSuperAdmin = currentUser?.role?.includes('super_admin');
-    
-    const eligibleIds = selectedUsers.filter(userId => {
-      const u = users.find(user => user.id === userId);
+    const eligibleIds = selectedUsers.filter((userId) => {
+      const u = users.find((user) => user.id === userId);
       if (!u) return false;
-      const targetIsSuperAdmin = u.role?.includes('super_admin');
-      if (!isSuperAdmin && targetIsSuperAdmin) return false;
+      const targetIsSuper = u.role?.includes("super_admin");
+      if (targetIsSuper && !isSuperAdmin) return false;
       return u.isOnline && u.id !== currentUser.id;
     });
-    
+
     if (eligibleIds.length === 0) {
-        setStatusMsg({ type: 'error', text: 'No eligible users selected.' });
+      setStatusMsg({
+        type: "error",
+        text: "No eligible users selected (Protected accounts skipped).",
+      });
     } else {
-        eligibleIds.forEach(userId => socket.emit('force_disconnect_user', { userId }));
-        setStatusMsg({ type: 'success', text: `Disconnected ${eligibleIds.length} users.` });
+      eligibleIds.forEach((userId) =>
+        socket.emit("force_disconnect_user", { userId })
+      );
+      setStatusMsg({
+        type: "success",
+        text: `Disconnected ${eligibleIds.length} users.`,
+      });
     }
 
-    setShowBulkConfirm(false);
+    closeModal();
     setSelectedUsers([]);
   };
 
   return {
     // State
-    selectedUsers, setSelectedUsers,
-    disconnectTarget, setDisconnectTarget,
-    disableTarget, setDisableTarget,
-    enableTarget, setEnableTarget,
-    revokeTarget, setRevokeTarget, // Exported for UI
-    showBulkConfirm, setShowBulkConfirm,
-    statusMsg, setStatusMsg,
-    
-    // Handlers
+    activeModal, // Use this for conditional rendering
+    selectedUsers,
+    setSelectedUsers,
+    statusMsg,
+    setStatusMsg,
+
+    // Triggers
+    promptDisconnect,
+    promptDisable,
+    promptEnable,
+    promptRevoke,
+    promptBulkDisconnect,
+    closeModal,
+
+    // Confirmations
     confirmDisconnect,
     confirmDisable,
     confirmEnable,
-    confirmRevoke, // Exported for UI
+    confirmRevoke,
     confirmBulkDisconnect,
 
-    // Context
     currentUser,
     hasPermission,
-    PERMISSIONS
+    PERMISSIONS,
   };
 };

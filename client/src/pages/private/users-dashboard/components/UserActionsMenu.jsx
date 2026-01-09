@@ -15,19 +15,24 @@ const UserActionsMenu = ({
 }) => {
   const navigate = useNavigate();
 
-  const isAdmin = currentUser?.role?.includes("admin");
-  const targetIsSuperAdmin = user.role?.includes("super_admin");
+  // --- ROLE CHECKS ---
+  const isMySuper = currentUser?.role?.includes("super_admin");
+  const isTargetSuper = user.role?.includes("super_admin");
 
-  // Logic: Can disconnect IF (has permission) AND (target is not a protected super admin unless I am also one)
-  // Simplified logic: If I have the permission, I can try. The server will ultimately reject if I can't.
+  // Rule: You can only touch a Super Admin if YOU are a Super Admin.
+  const isProtectedTarget = isTargetSuper && !isMySuper;
+
+  // --- ACTIONS AVAILABILITY ---
+
+  // Disconnect: Permission + Not Protected
   const canDisconnect =
     hasPermission(currentUser, PERMISSIONS.DISCONNECT_USERS) &&
-    !(isAdmin && targetIsSuperAdmin); // Simple safety check
+    !isProtectedTarget;
 
-  const canManageStatus = hasPermission(
-    currentUser,
-    PERMISSIONS.MANAGE_USER_STATUS
-  );
+  // Disable/Enable: Permission + Not Protected + Not Self
+  const canManageStatus =
+    hasPermission(currentUser, PERMISSIONS.MANAGE_USER_STATUS) &&
+    !isProtectedTarget;
 
   return (
     <div className="flex justify-end pr-2">
@@ -43,58 +48,71 @@ const UserActionsMenu = ({
           </Button>
         }
       >
-        <div className="w-60 font-sans">
-          <button
-            onClick={() => navigate(`/users/${encodeId(user.id)}`)}
-            className="w-full text-left px-4 py-2.5 text-sm text-zinc-700 hover:bg-zinc-50 flex items-center gap-2 transition-colors"
-          >
-            <Eye size={14} /> View Profile
-          </button>
-
-          <div className="h-px bg-zinc-100 my-1" />
-
-          {/* FORCE DISCONNECT */}
-          {hasPermission(currentUser, PERMISSIONS.DISCONNECT_USERS) && (
+        {/* FIX: Use render prop to access 'close' method */}
+        {({ close }) => (
+          <div className="w-60 font-sans">
             <button
-              onClick={() => onDisconnect(user.id)}
-              disabled={
-                !canDisconnect || !user.isOnline || user.id === currentUser.id
-              }
-              className="w-full text-left px-4 py-2.5 text-sm text-zinc-600 hover:bg-zinc-50 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              onClick={() => {
+                navigate(`/users/${encodeId(user.id)}`);
+                close();
+              }}
+              className="w-full text-left px-4 py-2.5 text-sm text-zinc-700 hover:bg-zinc-50 flex items-center gap-2 transition-colors"
             >
-              {targetIsSuperAdmin && isAdmin ? (
-                <Lock size={14} />
-              ) : (
-                <Power size={14} />
-              )}
-              Force Disconnect
+              <Eye size={14} /> View Profile
             </button>
-          )}
 
-          {/* TOGGLE ACCOUNT STATUS */}
-          {canManageStatus && (
-            <>
-              {user.status === "disabled" ? (
-                // ENABLE BUTTON
-                <button
-                  onClick={() => onEnable(user.id)}
-                  className="w-full text-left px-4 py-2.5 text-sm text-green-600 hover:bg-green-50 flex items-center gap-2"
-                >
-                  <CheckCircle size={14} /> Enable Account
-                </button>
-              ) : (
-                // DISABLE BUTTON
-                <button
-                  onClick={() => onDisable(user.id)}
-                  disabled={user.id === currentUser.id} // Cannot ban self
-                  className="w-full text-left px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2 disabled:opacity-50"
-                >
-                  <Ban size={14} /> Disable Account
-                </button>
-              )}
-            </>
-          )}
-        </div>
+            <div className="h-px bg-zinc-100 my-1" />
+
+            {/* FORCE DISCONNECT */}
+            {hasPermission(currentUser, PERMISSIONS.DISCONNECT_USERS) && (
+              <button
+                onClick={() => {
+                  onDisconnect(user.id);
+                  close(); // Close dropdown!
+                }}
+                disabled={
+                  !canDisconnect || !user.isOnline || user.id === currentUser.id
+                }
+                className="w-full text-left px-4 py-2.5 text-sm text-zinc-600 hover:bg-zinc-50 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isProtectedTarget ? (
+                  <Lock size={14} className="text-zinc-400" />
+                ) : (
+                  <Power size={14} />
+                )}
+                {isProtectedTarget ? "Protected Session" : "Force Disconnect"}
+              </button>
+            )}
+
+            {/* TOGGLE ACCOUNT STATUS */}
+            {canManageStatus && (
+              <>
+                {user.status === "disabled" ? (
+                  <button
+                    onClick={() => {
+                      onEnable(user.id);
+                      close(); // Close dropdown!
+                    }}
+                    className="w-full text-left px-4 py-2.5 text-sm text-green-600 hover:bg-green-50 flex items-center gap-2"
+                  >
+                    <CheckCircle size={14} /> Enable Account
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => {
+                      onDisable(user.id);
+                      close(); // Close dropdown!
+                    }}
+                    disabled={user.id === currentUser.id}
+                    className="w-full text-left px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2 disabled:opacity-50"
+                  >
+                    <Ban size={14} /> Disable Account
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+        )}
       </Dropdown>
     </div>
   );
