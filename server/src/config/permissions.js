@@ -7,6 +7,7 @@ export const ROLES = {
   ARTICLES_MANAGER: 'articles_manager',
   APPOINTMENTS_MANAGER: 'appointments_manager',
   VIEWER: 'viewer',
+
 };
 
 // 2. PERMISSIONS: The list of distinct actions
@@ -18,25 +19,25 @@ export const PERMISSIONS = {
   VIEW_MONITOR: 'view_monitor',
   VIEW_AUDIT_LOGS: 'view_audit_logs',
   VIEW_ADMIN_TOOLS: 'view_admin_tools',
-  VIEW_SOCKET_TEST: 'view_socket_test', // Tech/Dev access
+  VIEW_SOCKET_TEST: 'view_socket_test',
 
   // --- USER MANAGEMENT ---
-  VIEW_USERS: 'view_users', // See the directory
-  MANAGE_USERS: 'manage_users', // Edit profiles (basic)
-  CREATE_USERS: 'create_users', // Invite new users
-  MANAGE_USER_ROLES: 'manage_user_roles', // Promote/Demote (Critical)
-  MANAGE_USER_STATUS: 'manage_user_status', // Enable/Disable accounts
-  DISCONNECT_USERS: 'disconnect_users', // Force logout
+  VIEW_USERS: 'view_users', 
+  MANAGE_USERS: 'manage_users', 
+  CREATE_USERS: 'create_users', 
+  MANAGE_USER_ROLES: 'manage_user_roles', 
+  MANAGE_USER_STATUS: 'manage_user_status', 
+  DISCONNECT_USERS: 'disconnect_users', 
 
   // --- DONATIONS & INVENTORY ---
   CREATE_DONATION: 'create_donation',
   VIEW_DONATIONS: 'view_donations',
-  PROCESS_DONATIONS: 'process_donations', // Approve/Reject/Archive
-  MANAGE_INVENTORY: 'manage_inventory', // CRUD on Inventory Items
+  PROCESS_DONATIONS: 'process_donations',
+  MANAGE_INVENTORY: 'manage_inventory', 
 
   // --- CONTENT (CMS) ---
   VIEW_ARTICLES: 'view_articles',
-  MANAGE_ARTICLES: 'manage_articles', // Create/Edit/Publish
+  MANAGE_ARTICLES: 'manage_articles', 
 
   // --- BUSINESS LOGIC ---
   VIEW_ACQUISITIONS: 'view_acquisitions',
@@ -48,7 +49,6 @@ export const PERMISSIONS = {
 
 // 3. ROLE_DEFINITIONS: Who can do what
 export const ROLE_DEFINITIONS = {
-  // SUPER ADMIN: God Mode (Everything)
   [ROLES.SUPER_ADMIN]: Object.values(PERMISSIONS),
 
   // ADMIN: Operational control, but cannot change roles or access raw server logs unless specified
@@ -113,6 +113,7 @@ export const ROLE_DEFINITIONS = {
     PERMISSIONS.VIEW_ARTICLES, // Public news
     // Can generally see public info, but no management actions
   ],
+
 };
 
 // Helper for backend validation

@@ -47,12 +47,26 @@ const storage = multer.diskStorage({
 });
 
 const fileFilter = (req, file, cb) => {
-  const allowedTypes = ['image/jpeg', 'image/png', 'application/pdf', 'application/msword'];
-  if (allowedTypes.includes(file.mimetype)) {
-    cb(null, true);
-  } else {
-    cb(new Error('Invalid file type.'), false);
+  const allowedMimes = {
+    'image/jpeg': ['.jpg', '.jpeg'],
+    'image/png': ['.png'],
+    'application/pdf': ['.pdf']
+  };
+
+  const mime = file.mimetype;
+  const ext = path.extname(file.originalname).toLowerCase();
+
+  // Check 1: Mime Type Allowed?
+  if (!Object.keys(allowedMimes).includes(mime)) {
+    return cb(new Error('Unsupported file type'), false);
   }
+
+  // Check 2: Extension Matches Mime? (Anti-spoofing basic)
+  if (!allowedMimes[mime].includes(ext)) {
+    return cb(new Error('File extension does not match file type'), false);
+  }
+
+  cb(null, true);
 };
 
 export const upload = multer({ 
@@ -60,3 +74,33 @@ export const upload = multer({
   fileFilter,
   limits: { fileSize: 10 * 1024 * 1024 } 
 });
+
+// 2. NEW UTILITY: VERIFY MAGIC NUMBERS (Call this in your Controller!)
+export const verifyFileContent = async (filePath) => {
+  const stream = fs.createReadStream(filePath, { start: 0, end: 7 });
+  
+  return new Promise((resolve, reject) => {
+    stream.on('data', (chunk) => {
+      const hex = chunk.toString('hex').toUpperCase();
+      
+      // Magic Numbers
+      const signatures = {
+        'FFD8FF': 'image/jpeg',
+        '89504E47': 'image/png', // .PNG
+        '25504446': 'application/pdf' // %PDF
+      };
+
+      for (const [sig, type] of Object.entries(signatures)) {
+        if (hex.startsWith(sig)) {
+          stream.destroy();
+          return resolve(true); // Valid
+        }
+      }
+      
+      stream.destroy();
+      resolve(false); // Invalid content
+    });
+
+    stream.on('error', reject);
+  });
+};

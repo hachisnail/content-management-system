@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
 import api from '../../../../api';
 import { useAuth } from '../../../../context/AuthContext';
+import { useFileUpload } from '../../../../hooks/useFileUpload';
 import { 
   Card, 
   Badge, 
@@ -17,7 +18,8 @@ const ProfileAvatar = () => {
   const { user, login } = useAuth();
   const fileInputRef = useRef(null);
 
-  const [uploading, setUploading] = useState(false);
+  const { upload, uploading } = useFileUpload();
+
   const [error, setError] = useState(null);
   const [previewAvatar, setPreviewAvatar] = useState(null);
 
@@ -25,24 +27,25 @@ const ProfileAvatar = () => {
     const file = e.target.files[0];
     if (!file) return;
 
+    // 2. Pre-upload Validation
     if (file.size > 5 * 1024 * 1024) {
       setError('File size too large. Max 5MB allowed.');
       return;
     }
 
-    setUploading(true);
     setError(null);
 
     try {
-      const data = new FormData();
-      data.append("relatedType", "users");
-      data.append("relatedId", user.id);
-      data.append("isPublic", "true");
-      data.append("file", file);
+      // 3. Use the hook to handle the upload logic
+      const response = await upload(file, {
+        relatedType: "users",
+        relatedId: user.id,
+        isPublic: "true"
+      });
 
-      const response = await api.uploadFile(data);
       const newFile = response.data;
 
+      // 4. Handle Success
       if (newFile && newFile.id) {
         const newUrl = api.getFileUrl(newFile.id);
         setPreviewAvatar(newUrl);
@@ -51,9 +54,8 @@ const ProfileAvatar = () => {
       }
     } catch (err) {
       console.error(err);
-      setError('Failed to upload image. Please try again.');
-    } finally {
-      setUploading(false);
+      // The hook throws the error so we can catch it here for UI display
+      setError(err.message || 'Failed to upload image. Please try again.');
     }
   };
 
@@ -74,6 +76,7 @@ const ProfileAvatar = () => {
 
       <div className="relative inline-block group">
         <div className="w-32 h-32 mx-auto rounded-full bg-zinc-100 border-4 border-white shadow-lg overflow-hidden flex items-center justify-center relative">
+          {/* Use the hook's uploading state */}
           {uploading ? (
             <Loader2 className="animate-spin text-indigo-600" size={32} />
           ) : displayAvatar ? (

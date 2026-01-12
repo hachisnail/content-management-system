@@ -19,6 +19,21 @@ const checkPerm = (userRoles, permission) => {
   );
 };
 
+const sanitizeUser = (user) => {
+  if (!user) return null;
+  const userObj = typeof user.toJSON === 'function' ? user.toJSON() : user;
+  
+  const { 
+    password, 
+    registrationToken, 
+    socketId, 
+    resetPasswordToken, 
+    ...safeData 
+  } = userObj;
+  
+  return safeData;
+};
+
 export const updateUser = async (id, updateData, initiatorEmail) => {
   const user = await db.User.findByPk(id);
   if (!user) throw new Error('User not found');
@@ -99,7 +114,7 @@ export const updateUser = async (id, updateData, initiatorEmail) => {
     operation: 'UPDATE',
     affectedResource: `user:${user.id}`,
     beforeState,
-    afterState: { ...user.toJSON(), password: undefined, socketId: undefined },
+    afterState: sanitizeUser(user),
     initiator: initiatorEmail,
   });
 
@@ -136,7 +151,7 @@ export const deleteUser = async (id, initiatorEmail) => {
     description: `User/Invitation revoked for ${userEmail}`,
     operation: 'DELETE',
     affectedResource: `user:${id}`,
-    beforeState,
+    beforeState: sanitizeUser(user),
     afterState: null,
     initiator: initiatorEmail,
   });
@@ -224,7 +239,7 @@ export const createUser = async ({
     operation: 'CREATE',
     affectedResource: `user:${newUser.id}`,
     beforeState: null,
-    afterState: newUser.toJSON(),
+    afterState: sanitizeUser(newUser),
     initiator: initiatorEmail,
   });
 
@@ -266,7 +281,7 @@ export const completeRegistration = async (
     operation: 'UPDATE',
     affectedResource: `user:${user.id}`,
     beforeState,
-    afterState: user.toJSON(),
+    afterState: sanitizeUser(user),
     initiator: user.email,
   });
 

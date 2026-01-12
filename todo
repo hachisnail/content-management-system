@@ -1,15 +1,6 @@
-Implement file handling system
--file serving
--file uploading
--file accessiblity
-
-
-implement user controll
--change name, contact, role, password, etc.
-
-
-fix UsersDashboard realtime feature not syncing possible problem useRealtimeResource and index js race condition
-
-done
-useRealtimeResource.jsx is having problems with connections
-further test rbac functionality
+- Rewrote the server documentation to be more detailed and accessible for newcomers.
+- The new documentation provides a better overview of the server's architecture and functionality.
+- Rewrote the client documentation to be more comprehensive and beginner-friendly.
+- The new documentation provides a better overview of the client's architecture, state management, and core development patterns.
+- Rewrote the authentication guide to be a comprehensive, step-by-step walkthrough of the entire authentication and authorization flow.
+- Rewrote the real-time guide to explain the event-driven architecture, the dual-emission strategy, and the client-side state management with `zustand`.

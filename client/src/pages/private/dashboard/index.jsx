@@ -6,6 +6,7 @@ import api from "../../../api";
 import socket from "../../../socket"; 
 import ComponentErrorBoundary from "../../../components/ComponentErrorBoundary";
 import { Alert } from "../../../components/UI";
+import { Bug } from "lucide-react"; // Import Bug icon
 
 // Sub-components
 import { DashboardHeader } from './components/DashboardHeader';
@@ -13,10 +14,18 @@ import { StatsGrid } from './components/StatsGrid';
 import { ActivityFeed } from './components/ActivityFeed';
 import { QuickActions } from './components/QuickActions';
 
+// --- QA COMPONENT: Intentionally crashes ---
+const BuggyComponent = () => {
+  throw new Error("Simulation: The Activity Feed encountered a critical render error.");
+};
+
 const Dashboard = () => {
   const { user, error, loading } = useAuth();
   const { hasPermission, PERMISSIONS } = useConfig();
   const [debugLoading, setDebugLoading] = useState(false);
+  
+  // --- QA STATE ---
+  const [simulatedCrash, setSimulatedCrash] = useState(false);
 
   // --- DATA ---
   const { data: usersData } = useRealtimeResource('users', { queryParams: { limit: 1 } });
@@ -61,8 +70,20 @@ const Dashboard = () => {
   if (error) return <Alert type="error" title="Auth Error" message={error} />;
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-500">
+    <div className="space-y-8 animate-in fade-in duration-500 relative">
       
+      {/* QA TOOLBAR: Hidden in production usually */}
+      <div className="absolute top-0 right-0 z-10">
+        <button 
+          onClick={() => setSimulatedCrash(true)}
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-red-100 text-red-700 text-xs font-bold rounded-lg hover:bg-red-200 transition-colors shadow-sm border border-red-200"
+          title="Test Error Boundary"
+        >
+          <Bug size={14} />
+          <span>Crash Feed</span>
+        </button>
+      </div>
+
       {/* HEADER */}
       <DashboardHeader 
         user={user} 
@@ -81,12 +102,19 @@ const Dashboard = () => {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         
-        {/* RECENT ACTIVITY */}
-        <ComponentErrorBoundary title="Activity Feed Failed">
-          <ActivityFeed 
-            logs={recentLogs} 
-            canViewAll={hasPermission(user, PERMISSIONS.VIEW_AUDIT_LOGS)} 
-          />
+        {/* RECENT ACTIVITY (With Crash Simulation) */}
+        <ComponentErrorBoundary 
+          title="Activity Feed Failed"
+          onRetry={() => setSimulatedCrash(false)} // Resets state when "Reload Section" is clicked
+        >
+          {simulatedCrash ? (
+            <BuggyComponent />
+          ) : (
+            <ActivityFeed 
+              logs={recentLogs} 
+              canViewAll={hasPermission(user, PERMISSIONS.VIEW_AUDIT_LOGS)} 
+            />
+          )}
         </ComponentErrorBoundary>
 
         {/* ACTIONS */}

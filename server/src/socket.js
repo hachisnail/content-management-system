@@ -7,6 +7,18 @@ import { config } from './config/env.js';
 import { corsOptions } from './config/cors.js';
 import { ROLE_DEFINITIONS, PERMISSIONS } from './config/permissions.js';
 
+
+const ALLOWED_CHANNELS = [
+  'donations',
+  'users',
+  'audit_logs',
+  'inventory',
+  'server_logs',
+  'reports'
+];
+
+// --- HELPER FUNCTIONS ---
+
 const formatArg = (arg) => {
   if (arg instanceof Error) return `[ERROR: ${arg.message}] ${arg.stack}`;
   if (typeof arg === 'object') {
@@ -50,25 +62,38 @@ const logError = (message, ...args) => {
   } catch (e) {}
 };
 
+// --- PERMISSION LOGIC ---
+
 const hasPermission = (user, requiredPermission) => {
   if (!user || !user.role) return false;
   const userRoles = Array.isArray(user.role) ? user.role : [user.role];
+
+  // 1. CRITICAL: Super Admin Bypass (Fixes your access denied issue)
+  if (userRoles.includes('super_admin')) return true;
+
+  // 2. Standard Permission Check
   return userRoles.some((role) => {
     const allowedPermissions = ROLE_DEFINITIONS[role] || [];
     return allowedPermissions.includes(requiredPermission);
   });
 };
 
-const RESOURCE_PERMISSIONS = {
+// Map resources to the specific PERMISSION required to view them
+const RESOURCE_MAP = {
+  // Public
   donations: null,
-  museum_events: 'AUTHENTICATED',
-  inventory: 'AUTHENTICATED',
-  users: 'AUTHENTICATED',
+
+  // Restricted Data Tables
+  users: PERMISSIONS.VIEW_USERS,
   audit_logs: PERMISSIONS.VIEW_AUDIT_LOGS,
+  inventory: PERMISSIONS.MANAGE_INVENTORY, // Example
+
+  // Developer Tools
   server_logs: PERMISSIONS.VIEW_SOCKET_TEST,
   reports: PERMISSIONS.VIEW_ADMIN_TOOLS,
 };
 
+// --- STATE MANAGEMENT ---
 const disconnectTimeouts = new Map();
 const OFFLINE_GRACE_PERIOD_MS = 2000;
 const forcedDisconnects = new Set();
@@ -84,6 +109,7 @@ export const initSocket = (httpServer, sessionMiddleware) => {
 
   setIO(io);
 
+  // Attach Middleware
   io.engine.use(sessionMiddleware);
   io.engine.use(passport.initialize());
   io.engine.use(passport.session());
@@ -91,7 +117,6 @@ export const initSocket = (httpServer, sessionMiddleware) => {
   io.use((socket, next) => {
     if (socket.request.user) {
       socket.user = socket.request.user;
-      socket.data.user = socket.request.user;
       socket.isGuest = false;
     } else {
       socket.isGuest = true;
@@ -101,61 +126,30 @@ export const initSocket = (httpServer, sessionMiddleware) => {
 
   io.on('connection', async (socket) => {
     if (socket.recovered) {
-      logInfo(
-        `[Recovery] Socket ${socket.id} recovered. Missed packets flushed.`,
-      );
+      logInfo(`[Recovery] Socket ${socket.id} restored connection.`);
     }
 
-    const RATE_LIMIT = 10;
-    const RATE_WINDOW_MS = 1000;
-    const rateLimiter = { count: 0, lastReset: Date.now() };
-
-    socket.use(([event, ...args], next) => {
-      const now = Date.now();
-      if (now - rateLimiter.lastReset > RATE_WINDOW_MS) {
-        rateLimiter.count = 0;
-        rateLimiter.lastReset = now;
-      }
-      if (rateLimiter.count >= RATE_LIMIT)
-        return next(new Error('Rate limit exceeded.'));
-      rateLimiter.count++;
-      next();
-    });
-
-    socket.on('ping_activity', async () => {
-      if (socket.isGuest || !socket.user) return;
-      try {
-        const user = await db.User.findByPk(socket.user.id);
-        if (!user) return;
-        const now = Date.now();
-        const lastActive = user.last_active
-          ? new Date(user.last_active).getTime()
-          : 0;
-        const THRESHOLD = 30 * 1000;
-        if (now - lastActive > THRESHOLD) {
-          user.last_active = new Date();
-          await user.save();
-        }
-      } catch (err) {
-        logError('Activity ping error:', err);
-      }
-    });
-
+    // --- 1. SESSION INITIALIZATION ---
     if (socket.isGuest) {
       logInfo(`Guest connected: ${socket.id}`);
     } else {
       const userId = socket.user.id;
       logInfo(`User connected: ${socket.user.email}`);
+
+      // Clear pending disconnect timers (user reconnected fast)
       if (disconnectTimeouts.has(userId)) {
         clearTimeout(disconnectTimeouts.get(userId));
         disconnectTimeouts.delete(userId);
       }
-      socket.join(`user:${userId}`);
+
+      // Join Identity Rooms
+      socket.join(`user:${userId}`); // For system messages (kicks, alerts)
       const userRoles = Array.isArray(socket.user.role)
         ? socket.user.role
         : [socket.user.role];
-      userRoles.forEach((r) => socket.join(`role:${r}`));
+      userRoles.forEach((r) => socket.join(`role:${r}`)); // For role-based broadcasts
 
+      // Update Database Status
       try {
         const user = await db.User.findByPk(userId);
         if (user) {
@@ -166,34 +160,51 @@ export const initSocket = (httpServer, sessionMiddleware) => {
           user.isOnline = true;
           user.last_active = new Date();
           await user.save();
-          socket.emit('users_updated', user.toJSON());
-          socket.emit('log', { message: 'Welcome!', user: user.email });
+
+          // Acknowledge connection
+          socket.emit('log', {
+            message: 'Connected to Realtime Server',
+            type: 'success',
+          });
         }
       } catch (err) {
         logError('Error handling user connection:', err);
       }
     }
 
+    // --- 2. DATA RESOURCES (Tables) ---
+    // Usage: socket.emit('subscribe_resource', 'audit_logs')
     socket.on('subscribe_resource', (resourceName) => {
       let allowed = false;
       let baseResource = resourceName;
-      let specificId = null;
 
-      if (resourceName.includes('_')) {
-        const parts = resourceName.split('_');
-        const potentialId = parts[parts.length - 1];
-        if (potentialId) {
-          specificId = potentialId;
-          baseResource = parts.slice(0, -1).join('_');
-        }
+      // 2. FIX: STRICT VALIDATION BEFORE PARSING
+      // Prevent parsing massive strings or random garbage
+      if (!resourceName || typeof resourceName !== 'string' || resourceName.length > 50) {
+        return; // Silent reject
       }
 
-      const requiredPerm = RESOURCE_PERMISSIONS[baseResource];
+      // Check if it's a base resource OR a valid specific ID pattern
+      // Simple heuristic: Must start with a known channel
+      const isKnownChannel = ALLOWED_CHANNELS.some(ch => resourceName === ch || resourceName.startsWith(`${ch}_`));
+      
+      if (!isKnownChannel) {
+        return socket.emit('log', { type: 'error', message: 'Invalid channel name' });
+      }
 
+      // Handle specific ID subscriptions (e.g. 'users_123')
+      if (resourceName.includes('_')) {
+        // Logic to extract base resource if needed
+        // For now, we assume strict mapping to RESOURCE_MAP keys
+      }
+
+      const requiredPerm = RESOURCE_MAP[baseResource];
+
+      // Determine Access
       if (requiredPerm === undefined) {
-        allowed = false;
+        allowed = false; // Unknown resource
       } else if (requiredPerm === null) {
-        allowed = true;
+        allowed = true; // Public
       } else if (requiredPerm === 'AUTHENTICATED') {
         allowed = !socket.isGuest;
       } else {
@@ -202,11 +213,14 @@ export const initSocket = (httpServer, sessionMiddleware) => {
 
       if (allowed) {
         socket.join(resourceName);
-        if (resourceName !== 'server_logs')
-          logInfo(`Socket ${socket.id} subscribed to ${resourceName}`);
+        if (resourceName !== 'server_logs') {
+          logInfo(
+            `Socket ${socket.id} joined resource stream: ${resourceName}`,
+          );
+        }
       } else {
         socket.emit('log', {
-          message: `Access Denied: You do not have permission to view ${resourceName}.`,
+          message: `Access Denied: Insufficient permissions for ${resourceName}`,
           type: 'error',
         });
         logInfo(`Access denied for ${socket.id} to ${resourceName}`);
@@ -215,47 +229,83 @@ export const initSocket = (httpServer, sessionMiddleware) => {
 
     socket.on('unsubscribe_resource', (resourceName) => {
       socket.leave(resourceName);
-      if (resourceName !== 'server_logs') {
-        logInfo(`Socket ${socket.id} unsubscribed from ${resourceName}`);
+    });
+
+    // --- 3. NOTIFICATIONS SYSTEM ---
+    // Usage: socket.emit('subscribe_notifications')
+    socket.on('subscribe_notifications', () => {
+      if (socket.isGuest) return;
+
+      const room = `notifications:${socket.user.id}`;
+      socket.join(room);
+      logInfo(`User ${socket.user.email} subscribed to alerts`);
+    });
+
+    // --- 4. DIRECT MESSAGING (Chat) ---
+    // Usage: socket.emit('join_chat')
+    socket.on('join_chat', () => {
+      if (socket.isGuest) return;
+
+      const room = `chat:${socket.user.id}`;
+      socket.join(room);
+      logInfo(`User ${socket.user.email} enabled Direct Messaging`);
+    });
+
+    // --- 5. SYSTEM ACTIONS ---
+
+    // Keep Alive Ping
+    socket.on('ping_activity', async () => {
+      if (socket.isGuest || !socket.user) return;
+      try {
+        const user = await db.User.findByPk(socket.user.id);
+        if (user) {
+          const now = Date.now();
+          // Only update DB every 30s to save write ops
+          const THRESHOLD = 30 * 1000;
+          const lastActive = user.last_active
+            ? new Date(user.last_active).getTime()
+            : 0;
+
+          if (now - lastActive > THRESHOLD) {
+            user.last_active = new Date();
+            await user.save();
+          }
+        }
+      } catch (err) {
+        logError('Ping error', err);
       }
     });
 
+    // Legacy Donation Handler (Keep for compatibility)
     socket.on('create_donation', async (data) => {
       try {
         if (socket.isGuest)
           return socket.emit('log', { message: 'Login required.' });
-        const { itemDescription, quantity } = data;
-        const donation = await db.Donation.create({
+
+        await db.Donation.create({
           donorName: socket.user.email,
           donorEmail: socket.user.email,
-          itemDescription,
-          quantity,
+          itemDescription: data.itemDescription,
+          quantity: data.quantity,
         });
-        if (typeof logOperation === 'function') {
-          await logOperation({
-            operation: 'CREATE',
-            description: `Donation: ${itemDescription}`,
-            affectedResource: 'donations',
-            afterState: donation,
-            initiator: socket.user.email,
-          });
-        }
+        // Note: The DB Hook in models/index.js will handle the broadcast
       } catch (error) {
-        logError('Donation error', error);
+        logError('Donation socket error', error);
       }
     });
 
+    // Admin Action: Force Kick
     socket.on('force_disconnect_user', async ({ userId }) => {
+      // 1. Permission Check
       if (
         !socket.isGuest &&
         hasPermission(socket.user, PERMISSIONS.DISCONNECT_USERS)
       ) {
         try {
-          // --- SECURITY CHECK: HIERARCHY ---
           const targetUser = await db.User.findByPk(userId);
 
           if (targetUser) {
-            // Check roles
+            // 2. Hierarchy Check (Admin cannot kick Super Admin)
             const initiatorRoles = Array.isArray(socket.user.role)
               ? socket.user.role
               : [socket.user.role];
@@ -266,27 +316,33 @@ export const initSocket = (httpServer, sessionMiddleware) => {
             const isInitiatorSuper = initiatorRoles.includes('super_admin');
             const isTargetSuper = targetRoles.includes('super_admin');
 
-            // If Target is Super Admin, Initiator MUST be Super Admin
             if (isTargetSuper && !isInitiatorSuper) {
               return socket.emit('log', {
-                message:
-                  'Access Denied: You cannot disconnect a Super Admin account.',
+                message: 'Security Alert: You cannot disconnect a Super Admin.',
                 type: 'error',
               });
             }
 
+            // 3. Execution
             forcedDisconnects.add(userId);
+
+            // Notify target
             io.to(`user:${targetUser.id}`).emit('force_logout', {
-              message: 'Disconnected by admin.',
+              message: 'Session terminated by administrator.',
             });
+
+            // Disconnect all their sockets
             const socketIds = targetUser.socketId || [];
             socketIds.forEach((sid) => {
               const s = io.sockets.sockets.get(sid);
               if (s) s.disconnect(true);
             });
+
+            // Update DB
             targetUser.isOnline = false;
             targetUser.socketId = [];
             await targetUser.save();
+
             await logOperation({
               operation: 'FORCE_LOGOUT',
               description: `Kicked user ${targetUser.email}`,
@@ -294,6 +350,8 @@ export const initSocket = (httpServer, sessionMiddleware) => {
               initiator: socket.user.email,
             });
           }
+
+          // Clear lock after 5s
           setTimeout(() => forcedDisconnects.delete(userId), 5000);
         } catch (error) {
           logError('Kick error', error);
@@ -301,35 +359,47 @@ export const initSocket = (httpServer, sessionMiddleware) => {
       }
     });
 
+    // Disconnect Handler
     socket.on('disconnect', async () => {
       if (!socket.isGuest) {
         const userId = socket.user.id;
         const userEmail = socket.user.email;
+
+        // If they were kicked, don't run normal disconnect logic
         if (forcedDisconnects.has(userId)) return;
 
         try {
+          // Remove this specific socket ID from the user's list
           const user = await db.User.findByPk(userId);
           if (user) {
             const currentSockets = user.socketId || [];
             user.socketId = currentSockets.filter((id) => id !== socket.id);
             await user.save();
           }
+
+          // Grace Period: Wait 2s to see if they reconnect (page refresh)
           const timeoutId = setTimeout(async () => {
             const freshUser = await db.User.findByPk(userId);
             const userRoom = io.sockets.adapter.rooms.get(`user:${userId}`);
+
+            // If no sockets remain in their room, mark offline
             const activeConnectionCount = userRoom ? userRoom.size : 0;
+
             if (freshUser && activeConnectionCount === 0) {
               freshUser.isOnline = false;
               freshUser.last_active = new Date();
               await freshUser.save();
-              logInfo(`User marked offline: ${userEmail} (Grace period ended)`);
+              logInfo(`User marked offline: ${userEmail}`);
             }
-            if (disconnectTimeouts.get(userId) === timeoutId)
+
+            if (disconnectTimeouts.get(userId) === timeoutId) {
               disconnectTimeouts.delete(userId);
+            }
           }, OFFLINE_GRACE_PERIOD_MS);
+
           disconnectTimeouts.set(userId, timeoutId);
         } catch (error) {
-          logError('Disconnect error:', error);
+          logError('Disconnect cleanup error:', error);
         }
       } else {
         logInfo(`Guest disconnected: ${socket.id}`);

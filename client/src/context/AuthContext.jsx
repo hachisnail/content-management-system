@@ -54,6 +54,12 @@ export const AuthProvider = ({ children }) => {
     if (session && !socket.connected) {
       socket.connect();
     }
+
+    if (session) {
+    // NEW: Subscribe to private alerts and chat
+    socket.emitSafe('subscribe_notifications');
+    socket.emitSafe('join_chat');
+  }
   }, [session]);
 
   const login = (userData) => {

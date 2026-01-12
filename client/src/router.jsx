@@ -1,4 +1,3 @@
-import React from "react";
 import {
   createBrowserRouter,
   createRoutesFromElements,
@@ -8,7 +7,7 @@ import {
 
 // --- LAYOUTS ---
 import MainLayout from "./layouts/MainLayout";
-import AuthLayout from "./layouts/AuthLayout";
+// import AuthLayout from "./layouts/AuthLayout";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { RequireAuth, RequirePermission } from "./components/RouteGuards";
 
@@ -54,7 +53,6 @@ const routes = createRoutesFromElements(
     {/* 1. PUBLIC AUTHENTICATION */}
     <Route
       path="/auth"
-      element={<AuthLayout />}
       errorElement={<ErrorBoundary />}
     >
       <Route path="login" element={<LoginTest />} />

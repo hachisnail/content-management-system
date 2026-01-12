@@ -4,8 +4,16 @@ import {
   isRouteErrorResponse,
   useNavigate,
 } from "react-router-dom";
-import { AlertTriangle, RefreshCcw, Home, ShieldAlert, ServerCrash, FileQuestion } from "lucide-react";
-import { Button, Card } from "./UI";
+import {
+  AlertTriangle,
+  RefreshCcw,
+  Home,
+  ShieldAlert,
+  ServerCrash,
+  FileQuestion,
+  ArrowLeft,
+} from "lucide-react";
+import { Button } from "./UI";
 
 const ErrorBoundary = () => {
   const error = useRouteError();
@@ -13,91 +21,139 @@ const ErrorBoundary = () => {
 
   console.error("Route Error Caught:", error);
 
-  // Default: System Error (500)
-  let title = "System Error";
-  let message = "An unexpected error occurred.";
+  // Defaults
+  let title = "System Malfunction";
+  let message = "An unexpected condition was encountered.";
   let code = 500;
   let Icon = ServerCrash;
-  let colorClass = "text-red-600";
-  let bgClass = "bg-red-50";
+  let theme = "red"; // red, amber, indigo
 
-  // 1. Handle React Router Errors (Thrown Responses)
+  // 1. Handle React Router Errors
   if (isRouteErrorResponse(error)) {
     code = error.status;
     title = error.statusText;
     message = error.data || error.data?.message;
-  
-  // 2. FIX: Handle API Error Objects ({ status: 403, message: '...' })
-  } else if (error && typeof error === 'object' && error.status) {
+
+    // 2. Handle API Object Errors
+  } else if (error && typeof error === "object" && error.status) {
     code = error.status;
     message = error.message;
-    // Map API status text defaults if needed
     if (code === 403) title = "Access Denied";
     if (code === 404) title = "Resource Not Found";
     if (code === 401) title = "Unauthorized";
 
-  // 3. Handle Standard JS Errors
+    // 3. Handle JS Errors
   } else if (error instanceof Error) {
     message = error.message;
   }
 
-  // --- CUSTOMIZE UI BASED ON CODE ---
-  
+  // Configuration map
   if (code === 404) {
     title = title || "Page Not Found";
-    message = message || "The page you are looking for doesn't exist or has been moved.";
+    message =
+      message ||
+      "The page you are looking for has been moved or does not exist.";
     Icon = FileQuestion;
-    colorClass = "text-indigo-600";
-    bgClass = "bg-indigo-50";
+    theme = "indigo";
   } else if (code === 403) {
-    title = title || "Access Restricted";
-    message = message || "You do not have permission to view this resource.";
+    title = title || "Restricted Access";
+    message =
+      message || "You do not have the necessary permissions to view this area.";
     Icon = ShieldAlert;
-    colorClass = "text-amber-600";
-    bgClass = "bg-amber-50";
+    theme = "amber";
   }
 
-  // Common UI Layout for all full-page errors
+  // Theme styles
+  const themes = {
+    red: {
+      iconBg: "bg-red-50",
+      iconColor: "text-red-600",
+      glow: "bg-red-500/10",
+    },
+    amber: {
+      iconBg: "bg-amber-50",
+      iconColor: "text-amber-600",
+      glow: "bg-amber-500/10",
+    },
+    indigo: {
+      iconBg: "bg-indigo-50",
+      iconColor: "text-indigo-600",
+      glow: "bg-indigo-500/10",
+    },
+  };
+  const currentTheme = themes[theme] || themes.red;
+
   return (
-    <div className="min-h-screen w-full flex flex-col items-center justify-center p-6 bg-zinc-50 animate-in fade-in zoom-in-95 duration-300">
-      <div className="max-w-md w-full text-center">
-        
-        {/* Icon Circle */}
-        <div className={`w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6 shadow-sm border border-white ${bgClass}`}>
-          <Icon size={40} className={colorClass} />
+    <div className="min-h-screen w-full flex flex-col items-center justify-center p-6 bg-zinc-50 relative overflow-hidden font-sans">
+      {/* Background Decor */}
+      <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-zinc-300 to-transparent opacity-20" />
+      <div
+        className={`absolute -top-20 -left-20 w-64 h-64 rounded-full blur-3xl ${currentTheme.glow}`}
+      />
+      <div
+        className={`absolute -bottom-20 -right-20 w-64 h-64 rounded-full blur-3xl ${currentTheme.glow}`}
+      />
+
+      <div className="max-w-md w-full relative z-10 text-center animate-in fade-in zoom-in-95 duration-500">
+        {/* Icon */}
+        <div
+          className={`w-20 h-20 rounded-2xl mx-auto mb-8 flex items-center justify-center shadow-lg shadow-zinc-200/50 border border-white ${currentTheme.iconBg}`}
+        >
+          <Icon
+            size={40}
+            className={currentTheme.iconColor}
+            strokeWidth={1.5}
+          />
         </div>
 
-        {/* Text Content */}
-        <h1 className="text-4xl font-extrabold text-zinc-900 mb-2 tracking-tight">{code}</h1>
-        <h2 className="text-xl font-bold text-zinc-800 mb-3">{title}</h2>
-        <p className="text-zinc-500 mb-8 leading-relaxed px-4">
-          {message}
-        </p>
+        {/* Content */}
+        <div className="space-y-2 mb-8">
+          <h1 className="text-4xl font-extrabold text-zinc-900 tracking-tight">
+            {code}
+          </h1>
+          <h2 className="text-lg font-semibold text-zinc-700">{title}</h2>
+          <p className="text-zinc-500 text-sm leading-relaxed max-w-xs mx-auto">
+            {message}
+          </p>
+        </div>
 
         {/* Actions */}
-        <div className="flex gap-3 justify-center">
-          <Button 
-            variant="secondary" 
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+          <Button
+            variant="secondary"
             onClick={() => navigate(-1)}
+            icon={ArrowLeft}
+            className="w-full sm:w-auto"
           >
             Go Back
           </Button>
+
           <Button
             variant="primary"
             icon={Home}
             onClick={() => navigate("/dashboard", { replace: true })}
+            className="w-full sm:w-auto shadow-md shadow-indigo-200/50"
           >
             Dashboard
           </Button>
+
           {code === 500 && (
-             <Button
-                variant="ghost"
-                icon={RefreshCcw}
-                onClick={() => window.location.reload()}
-             >
-               Reload
-             </Button>
+            <Button
+              variant="ghost"
+              icon={RefreshCcw}
+              onClick={() => window.location.reload()}
+              className="w-full sm:w-auto"
+            >
+              Reload
+            </Button>
           )}
+        </div>
+
+        <div className="mt-12 text-xs text-zinc-400 font-medium">
+          Error Reference:{" "}
+          <span className="font-mono text-zinc-500">
+            {new Date().getTime().toString(36).toUpperCase()}
+          </span>
         </div>
       </div>
     </div>

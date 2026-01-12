@@ -12,3 +12,4 @@ router.get('/', isAuthenticated, hasPermission(PERMISSIONS.VIEW_AUDIT_LOGS), Aud
 router.get('/:id', isAuthenticated, hasPermission(PERMISSIONS.VIEW_AUDIT_LOGS), AuditLogController.getAuditLogById);
 
 export { router as auditLogRoutes };
+

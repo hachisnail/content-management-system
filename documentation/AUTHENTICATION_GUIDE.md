@@ -1,41 +1,117 @@
-# Authentication Guide
+# Comprehensive Guide to Authentication and Authorization
 
-This guide explains how the session-based authentication system works in this application.
+This guide provides a detailed, step-by-step explanation of the authentication and authorization system in the MASCD-MIS application. It's designed for developers to understand not just *what* it does, but *how* it works, from the initial login request to permission-based access control.
 
-## Overview
+## 1. Core Concepts: Authentication vs. Authorization
 
-The application uses a traditional session-based authentication system with Passport.js on the server-side. Instead of using JWTs, it relies on session cookies to identify and authenticate users.
+It's crucial to understand the two main pillars of our security system:
 
-## Login Flow
+*   **Authentication**: This process answers the question, "**Who are you?**" It's the act of verifying a user's identity, typically by checking their email and password. In our system, a successful authentication results in the creation of a **session**.
 
-1.  **Client-side:** The user enters their email and password in the login form and clicks "Login".
-2.  **API Request:** The client sends a `POST` request to the `/api/auth/login` endpoint with the user's credentials.
-3.  **Server-side:**
-    *   The server receives the request and uses the "local" strategy in Passport.js to validate the credentials against the database.
-    *   If the credentials are valid, a new session is created for the user.
-    *   The server stores the session data in the `sessions` table in the database.
-    *   The server sends a session cookie back to the client in the response headers. This cookie contains the session ID.
-4.  **Client-side:**
-    *   The browser automatically stores the session cookie.
-    *   The client stores the user object in `localStorage` to keep the user logged in on the client-side between page reloads.
+*   **Authorization**: This process answers the question, "**What are you allowed to do?**" Once a user is authenticated, authorization determines which actions they can perform, which pages they can see, and which data they can access. We handle this using **Role-Based Access Control (RBAC)**.
 
-## Session Management
+Our application uses a traditional and robust **session-based authentication** system powered by **Passport.js**.
 
-*   **Session Store:** Sessions are stored in the MariaDB database in the `sessions` table. This is managed by the `express-mysql-session` library.
-*   **Session Timeout:** The session is configured to expire after one day of inactivity. This can be configured in `server/src/config/session.js`.
+## 2. The User Login Journey: From Click to Cookie
 
-## Authenticated Requests
+Let's trace the exact flow of events when a user submits the login form.
 
-Once the user is logged in, the browser will automatically send the session cookie with every subsequent API request to the server.
+**Client-Side**: The user enters their credentials and clicks "Login". A `POST` request is sent to the `/api/auth/login` endpoint.
 
-To ensure this works correctly, the client-side `fetch` calls must include the `credentials: 'include'` option. This has been configured globally in `client/src/api.js`.
+---
 
-The server uses the `isAuthenticated` middleware to protect routes. This middleware checks for a valid session and will return a 401 Unauthorized error if the user is not authenticated.
+**Server-Side**: The request arrives and begins its journey through the Express middleware.
 
-## Socket Authentication
+*   **Step 1: The Route (`/src/routes/auth.routes.js`)**
+    The request first hits our routing layer. The login route is configured to use Passport's `'local'` authentication strategy.
 
-The Socket.IO connection is also authenticated using the same session.
+    ```javascript
+    // in auth.routes.js
+    router.post('/login', passport.authenticate('local'), authController.login);
+    ```
+    Notice `passport.authenticate('local')` is used as a middleware directly in the route.
 
-1.  **Connection Request:** When the client attempts to connect to the Socket.IO server, it sends the session cookie along with the connection request. This is enabled by the `withCredentials: true` option in `client/src/socket.js`.
-2.  **Server-side:** The Socket.IO server uses a middleware to access the session data from the request. It uses the `passport.session()` middleware to deserialize the user from the session and attach it to the `socket.request.user` object.
-3.  **Authenticated Socket:** If the session is valid, the `socket.request.user` object will be populated, and the socket will be treated as an authenticated user. Otherwise, it will be treated as a guest.
+*   **Step 2: The "Local" Strategy (`/src/config/passport.js`)**
+    Passport now invokes the `LocalStrategy`. This strategy is designed for username/password authentication. Its job is to:
+    1.  Extract the `email` and `password` from the request body.
+    2.  Find a user in the `Users` database table with the matching email.
+    3.  If a user is found, securely compare the submitted password with the **hashed password** stored in the database using `bcrypt.compare`.
+    4.  If the passwords match, it calls the `done(null, user)` callback, passing the authenticated `user` object to Passport. If not, it calls `done(null, false, { message: '...' })`.
+
+*   **Step 3: Session Creation & Serialization (`/src/config/passport.js`)**
+    When `done(null, user)` is called, Passport knows the authentication was successful. It then triggers `passport.serializeUser`. This function's critical job is to decide **what piece of information to store in the session to identify the user**. To keep the session lightweight, we only store the user's ID.
+
+    ```javascript
+    // in passport.js
+    passport.serializeUser((user, done) => {
+      done(null, user.id); // Only the user's ID is saved in the session.
+    });
+    ```
+
+*   **Step 4: The Session Store (`/src/config/session.js`)**
+    The Express session middleware now saves the session data. In our case, it creates a record in the `sessions` table in the MariaDB database. This record contains the session ID and the serialized user ID from the previous step.
+
+*   **Step 5: The Response and the Cookie**
+    Finally, the `auth.controller.js` `login` function runs. It sends a `200 OK` response back to the client. Crucially, Express attaches a `Set-Cookie` header to this response. The cookie contains the **Session ID**, which acts as a key to unlock the session data stored on the server. The browser automatically and securely stores this cookie.
+
+## 3. The Authenticated Request: How the Server Remembers You
+
+Now that the user is logged in, every subsequent API request from the client to the server will "just work." Here’s how the server identifies the user on each of those requests.
+
+*   **Step 1: The Cookie Travels Back**
+    With every request to the server's domain, the browser automatically attaches the session cookie to the request headers.
+
+*   **Step 2: The Session Middleware (`/src/app.js`)**
+    The `session()` middleware is one of the first to run. It reads the session ID from the cookie, looks it up in the `sessions` database table, and retrieves the corresponding session data (which includes the `user.id` we stored). It attaches this data to the request object, often as `req.session`.
+
+*   **Step 3: Populating the User with `deserializeUser` (`/src/config/passport.js`)**
+    Next, the `passport.session()` middleware runs. It takes the `user.id` from the session data and calls `passport.deserializeUser`. This function does the reverse of `serializeUser`: it takes the ID and fetches the **full user object** from the `Users` database table.
+
+    ```javascript
+    // in passport.js
+    passport.deserializeUser(async (id, done) => {
+      try {
+        const user = await db.User.findByPk(id); // Fetches the full user from DB.
+        done(null, user);
+      } catch (error) {
+        done(error);
+      }
+    });
+    ```
+
+*   **Step 4: The Magic of `req.user`**
+    Passport attaches the fully retrieved user object to the Express request object as `req.user`. This is the single most important step. From this point forward, for the entire lifecycle of this one request, **every downstream middleware and controller can access `req.user`** to know who the currently authenticated user is.
+
+*   **Step 5: The `isAuthenticated` Gatekeeper (`/src/middlewares/auth.middleware.js`)**
+    On protected routes, we use our custom `isAuthenticated` middleware. Its job is now incredibly simple: it just checks if `req.user` exists. If it does, the user is authenticated, and the request is allowed to proceed to the controller. If not, it sends a `401 Unauthorized` error.
+
+## 4. Authorization (RBAC) with `hasPermission`
+
+After the server knows *who* the user is, it needs to determine *what* they can do.
+
+The `hasPermission` middleware is the gatekeeper for authorization. You can apply it to a route like this:
+`router.delete('/users/:id', isAuthenticated, hasPermission('manage:users'), userController.deleteUser);`
+
+Here’s how it works:
+1.  It assumes `isAuthenticated` has already run, so `req.user` is available.
+2.  It retrieves the user's roles from `req.user.roles` (e.g., `['admin']`).
+3.  It looks up the permissions defined for those roles in the master permissions config file (`/src/config/permissions.js`).
+4.  It checks if the required permission (`'manage:users'`) is included in the list of permissions for that user's roles.
+5.  If yes, the request continues. If no, it sends a `403 Forbidden` error.
+
+## 5. Client-Side Authentication Management
+
+The client-side logic is centralized in `AuthContext.jsx`.
+
+*   **`AuthContext.jsx`**: This React Context acts as the global provider for authentication state. When the application first loads, it makes an API call to `/api/auth/session` to check if there is an active session and fetches the user data if one exists.
+*   **`useAuth()` Hook**: Components across the application use this hook to get the latest authentication state: `const { user, isAuthenticated } = useAuth();`. The hook ensures that any component using it will re-render if the authentication state changes (e.g., after login or logout).
+*   **Login/Logout Functions**: The context also provides functions like `login(email, password)` and `logout()`. These functions are responsible for making the API calls to the server's authentication endpoints and updating the context's state based on the response.
+
+## 6. Securing Real-time Connections (Socket.IO)
+
+Socket.IO connections are also protected using the same session mechanism.
+
+1.  When the client initiates a WebSocket connection, the browser automatically sends the session cookie.
+2.  On the server, a special Socket.IO middleware is used to share the Express session context with the socket server.
+3.  This middleware uses Passport to run the same `deserializeUser` logic, identifying the user from the session and attaching the user object to the `socket.request.user` property.
+4.  This allows us to write secure, user-specific real-time logic. For example, we can check `socket.request.user.roles` before allowing a user to `join` a specific room.

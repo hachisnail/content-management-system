@@ -1,7 +1,7 @@
 import { getIO } from '../socket-store.js';
 
-// REDUNDANCY: Wait 300ms even after commit to ensure total system stability
-const BROADCAST_DELAY = 300;
+// FIX: Removed BROADCAST_DELAY to eliminate artificial lag.
+// We now rely on transaction.afterCommit for timing safety.
 
 const safeEmit = (roomName, eventName, payload) => {
   try {
@@ -12,13 +12,11 @@ const safeEmit = (roomName, eventName, payload) => {
           ? payload.toJSON()
           : payload;
 
-      // The actual emission is delayed
-      setTimeout(() => {
-        io.to(roomName).emit(eventName, data);
-        console.log(
-          `[Socket] Emitted ${eventName} to room ${roomName} (Delayed ${BROADCAST_DELAY}ms)`,
-        );
-      }, BROADCAST_DELAY);
+      // FIX: Emit immediately. Timing is handled by scheduleEmission.
+      io.to(roomName).emit(eventName, data);
+
+      // Optional: Debug log (can be removed in production)
+      // console.log(`[Socket] Emitted ${eventName} to room ${roomName}`);
     }
   } catch (err) {
     console.warn(`[Socket] Failed to emit ${eventName}:`, err.message);
@@ -29,17 +27,13 @@ const safeEmit = (roomName, eventName, payload) => {
 const scheduleEmission = (options, roomName, eventName, payload) => {
   if (options && options.transaction) {
     // BEST PRACTICE: Wait for Transaction Commit
+    // This ensures the data exists in the DB before the client tries to fetch it.
     options.transaction.afterCommit(() => {
-      console.log(
-        `[Hook] Transaction committed. Scheduling emit for ${eventName}...`,
-      );
+      // console.log(`[Hook] Transaction committed. Emitting ${eventName}...`);
       safeEmit(roomName, eventName, payload);
     });
   } else {
-    // STANDARD: Emit immediately (the safeEmit function handles the 300ms delay)
-    console.log(
-      `[Hook] No transaction detected. Scheduling emit for ${eventName}...`,
-    );
+    // STANDARD: Emit immediately if no transaction context exists
     safeEmit(roomName, eventName, payload);
   }
 };
@@ -62,7 +56,7 @@ export const triggerSmartUpdate = (resourceName, payload) => {
       ? { id: payload }
       : payload;
 
-  // Manual triggers usually happen outside transactions, but safeEmit still adds delay
+  // Manual triggers usually happen outside transactions
   console.log(`[Hook] Manual trigger for ${resourceName} update.`);
   safeEmit(resourceName, `${resourceName}_updated`, data);
 
@@ -75,9 +69,8 @@ export const triggerSmartUpdate = (resourceName, payload) => {
 export const notifyNewResource =
   (resourceName, eagerLoad = null) =>
   async (instance, options) => {
-    console.log(`[Hook] Notifying new ${resourceName} creation.`);
+    // console.log(`[Hook] Notifying new ${resourceName} creation.`);
 
-    // Pass transaction to reload so we see the data inside the transaction
     const payload = await reloadWithAssociations(
       instance,
       eagerLoad,
@@ -91,11 +84,10 @@ export const notifyNewResource =
 export const notifyMutableResource =
   (resourceName, eagerLoad = null) =>
   async (instance, options) => {
-    console.log(`[Hook] Notifying mutable ${resourceName} change.`);
+    // console.log(`[Hook] Notifying mutable ${resourceName} change.`);
 
     const recordRoom = `${resourceName}_${instance.id}`;
 
-    // Pass transaction to reload
     const payload = await reloadWithAssociations(
       instance,
       eagerLoad,
@@ -131,7 +123,7 @@ export const notifyMutableResource =
     // 1. Emit to Master Room
     scheduleEmission(options, resourceName, eventName, payload);
 
-    // 2. Emit to Specific Room
+    // 2. Emit to Specific Room (only needed for updates)
     if (!isNew) {
       scheduleEmission(options, recordRoom, eventName, payload);
     }
