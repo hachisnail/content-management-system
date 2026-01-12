@@ -1,3 +1,4 @@
+```markdown
 # MASCD-MIS Client-Side Documentation
 
 Welcome to the client-side documentation for the MASCD-MIS application. This guide is designed to give every developer, from newcomers to seasoned contributors, a thorough understanding of our frontend architecture, core patterns, and development practices.
@@ -8,10 +9,10 @@ The client is a **Single Page Application (SPA)** built with **React** and bundl
 
 ### Key Features:
 
-*   **Modern UI/UX**: A responsive and intuitive user interface built with reusable React components.
-*   **Real-time Data**: Leverages WebSockets to receive and display live data updates from the server, ensuring the UI is always in sync.
-*   **Role-Based Access Control (RBAC)**: Dynamically renders UI elements and controls access to pages based on the logged-in user's permissions.
-*   **Client-Side Routing**: Uses `react-router-dom` to provide fast, seamless navigation between different views without full page reloads.
+* **Modern UI/UX**: A responsive and intuitive user interface built with reusable React components and Tailwind CSS.
+* **Real-time Data**: Leverages WebSockets (via `Socket.IO`) to receive and display live data updates from the server, ensuring the UI is always in sync.
+* **Role-Based Access Control (RBAC)**: Dynamically renders UI elements and controls access to pages based on the logged-in user's permissions.
+* **Client-Side Routing**: Uses `react-router-dom` to provide fast, seamless navigation between different views without full page reloads.
 
 ## 2. Getting Started: Setting Up Your Development Environment
 
@@ -19,8 +20,8 @@ Follow these steps to get the client running on your local machine.
 
 ### Prerequisites
 
-*   **Node.js**: You'll need Node.js installed, preferably version 18 or higher.
-*   **A running server instance**: The client application needs to connect to the server's API. Make sure you have the server running locally (see the `SERVER_GUIDE.md`).
+* **Node.js**: You'll need Node.js installed, preferably version 18 or higher.
+* **A running server instance**: The client application needs to connect to the server's API. Make sure you have the server running locally.
 
 ### Installation Steps
 
@@ -29,7 +30,7 @@ Follow these steps to get the client running on your local machine.
     cd client
     ```
 
-2.  **Install Dependencies**: This command installs all the necessary Node.js modules defined in `package.json`.
+2.  **Install Dependencies**:
     ```bash
     npm install
     ```
@@ -44,9 +45,11 @@ You should now see the application running, typically at `http://localhost:5173`
 
 ## 3. Project Structure: A Tour of `/src`
 
-The `client/src` directory contains the heart of our application. Understanding its structure is key to finding your way around the codebase.
+The `client/src` directory contains the heart of our application.
+
 
 ```
+
 /client/src
 ├── api.js                 # Axios instance for making HTTP requests to the server.
 ├── main.jsx               # The main entry point of the React application.
@@ -54,24 +57,25 @@ The `client/src` directory contains the heart of our application. Understanding 
 ├── socket.js              # Configures the Socket.IO client for real-time communication.
 |
 ├── assets/                # Static assets like images and SVGs.
-├── components/            # Reusable UI components used across the application.
+├── components/            # Reusable UI components (DataTable, Modal, etc.).
 ├── context/               # React Context providers for global state (Auth, Config).
-├── hooks/                 # Custom React hooks that contain reusable logic.
-├── layouts/               # High-level layout components (e.g., main app layout, auth pages layout).
-├── pages/                 # Top-level components, where each file or folder represents a page.
-├── stores/                # Zustand stores for managing centralized, real-time data.
-└── utils/                 # Utility functions that can be used anywhere.
+├── hooks/                 # Custom React hooks containing reusable logic.
+├── layouts/               # High-level layout components (MainLayout, AuthLayout).
+├── pages/                 # Top-level components representing specific pages.
+├── stores/                # Zustand stores for centralized, real-time data management.
+└── utils/                 # Utility functions (time formatting, ID encoding).
+
 ```
 
 ## 4. Core Architecture & State Management
 
 Our state management strategy is layered to be both efficient and easy to manage.
 
-*   **React Context**: Used for global, slowly-changing state.
-    *   `AuthContext`: Provides the current user's authentication status (`user`, `isAuthenticated`) to the entire application.
-    *   `ConfigContext`: Provides application-wide configuration, most importantly the `PERMISSIONS` object and the `hasPermission` helper function for checking user roles.
+* **React Context**: Used for global, slowly-changing state.
+    * `AuthContext`: Provides the current user's authentication status (`user`, `isAuthenticated`). It uses an "optimistic" loading strategy, initializing immediately from `localStorage` while verifying the session in the background.
+    * `ConfigContext`: Provides application-wide configuration, including the master `PERMISSIONS` list and role definitions.
 
-*   **Zustand (via custom hooks)**: Used for managing dynamic, real-time data from the server (like lists of users, donations, logs). This centralized store prevents data inconsistencies and race conditions, ensuring that if data is updated in one place, the change is reflected everywhere it's used.
+* **Zustand (via `createRealtimeStore`)**: Used for managing dynamic, real-time data from the server (users, donations, logs). This centralized store handles caching, polling fallbacks, and socket events to ensure data consistency.
 
 ## 5. Key Hooks: Your Toolkit for Building Features
 
@@ -81,87 +85,82 @@ Custom hooks are the primary way we build features. They encapsulate complex log
 
 This is the hook for all things authentication.
 
-*   **Usage**: `const { user, isAuthenticated, loading } = useAuth();`
-*   **Returns**:
-    *   `user`: The authenticated user object, which includes their roles and permissions. It's `null` if the user is not logged in.
-    *   `isAuthenticated`: A simple boolean flag.
-    *   `loading`: A boolean that is `true` while the hook is validating the session on initial app load.
+* **Usage**: `const { user, isAuthenticated, login, logout } = useAuth();`
+* **Returns**:
+    * `user`: The authenticated user object. `null` if not logged in.
+    * `isAuthenticated`: Boolean flag.
+    * `loading`: **Always false** (due to optimistic loading). The app assumes the local storage data is correct until the background sync proves otherwise.
 
 ### `useConfig()` - Checking Permissions
 
 This hook provides tools for our Role-Based Access Control (RBAC) system.
 
-*   **Usage**: `const { PERMISSIONS, hasPermission } = useConfig();`
-*   **Returns**:
-    *   `PERMISSIONS`: An object mapping permission names to their string values from the server (e.g., `MANAGE_USERS: 'manage:users'`). **Always use this object** to avoid typos.
-    *   `hasPermission(user, permission)`: A helper function to check if a user object has a specific permission.
+* **Usage**: `const { PERMISSIONS, hasPermission } = useConfig();`
+* **Returns**:
+    * `PERMISSIONS`: An object mapping permission names to string values (e.g., `MANAGE_USERS: 'manage:users'`).
+    * `hasPermission(user, permission)`: A helper function to check if a user object has a specific permission.
 
 **Example: Conditionally rendering an "Admin" button**
 
 ```jsx
-import { useAuth } from './context/AuthContext';
-import { useConfig } from './context/ConfigContext';
-import { Button } from './components/UI';
+const { user } = useAuth();
+const { hasPermission, PERMISSIONS } = useConfig();
 
-function UserActions({ targetUser }) {
-  const { user: currentUser } = useAuth();
-  const { hasPermission, PERMISSIONS } = useConfig();
-
-  // Only show the "Delete User" button if the current user has the 'manage:users' permission
-  if (!hasPermission(currentUser, PERMISSIONS.MANAGE_USERS)) {
-    return null;
-  }
-
-  return <Button danger onClick={() => deleteUser(targetUser.id)}>Delete User</Button>;
+if (hasPermission(user, PERMISSIONS.MANAGE_USERS)) {
+  return <Button>Delete User</Button>;
 }
+
 ```
 
 ### `useTableControls(options)` - Managing UI State for Tables
 
 Data tables often have complex UI state: pagination, sorting, search queries, etc. This hook manages all of it.
 
-*   **Usage**: `const { queryParams, setPage, setSearch, handleSortChange } = useTableControls({ ...options });`
-*   **Returns**:
-    *   `queryParams`: A memoized object containing the current state (`page`, `limit`, `sortBy`, `sortDir`, `search`). This object is ready to be passed directly to `useRealtimeResource`.
-    *   State Setters: Functions to update the state, like `setPage`, `setSearch`, and `handleSortChange`.
+* **Usage**: `const { queryParams, setPage, setSearch, handleSortChange } = useTableControls({ defaultLimit: 10 });`
+* **Returns**:
+* `queryParams`: A memoized object containing the current state (`page`, `limit`, `sortBy`, `sortDir`, `search`). This is designed to be passed directly to `useRealtimeResource`.
+* `handleSortChange(key, direction)`: Pass this to the `DataTable`'s `onSort` prop.
 
-### `useRealtimeResource(resourceName, options)` - Fetching Lists of Data
 
-This is the primary hook for fetching and subscribing to **lists** of data (e.g., a table of users, a list of audit logs).
 
-*   **Usage**: `const { data, meta, loading, error } = useRealtimeResource('users', { queryParams });`
-*   **`resourceName`**: The name of the API resource (e.g., `'users'`, `'audit_logs'`).
-*   **`options.queryParams`**: The `queryParams` object from `useTableControls`. The hook automatically re-fetches data whenever these params change.
-*   **Returns**:
-    *   `data`: An array of items for the current page.
-    *   `meta`: An object containing pagination details from the server (`totalItems`, `totalPages`, etc.).
-    *   `loading`: A boolean loading state.
-    *   `error`: Any error that occurred.
+### `useRealtimeResource(resourceName, options)` - Universal Data Hook
 
-### `useRealtimeRecord(resourceName, id)` - Fetching a Single Record
+This is the **single, unified hook** for fetching data. It operates in two modes depending on whether you provide an `id`.
 
-This is a specialized, highly efficient hook for fetching and subscribing to a **single record** by its ID. It's perfect for detail pages (e.g., a user's profile page).
+#### Mode A: Fetching a List (Table View)
 
-*   **Usage**: `const { data, loading, error } = useRealtimeRecord('users', userId);`
-*   **Returns**:
-    *   `data`: The single record object (e.g., the user), or `null` if not found.
-    *   `loading`/`error`: Standard state indicators.
+When you provide `queryParams` but no `id`, it fetches a paginated list.
+
+* **Usage**: `const { data, meta, loading } = useRealtimeResource('users', { queryParams });`
+* **Returns**:
+* `data`: Array of items for the current page.
+* `meta`: Pagination metadata (`totalItems`).
+
+
+
+#### Mode B: Fetching a Single Record (Detail View)
+
+When you provide an `id`, it switches to "Single Entity" mode. It is highly optimized to subscribe only to updates for that specific record.
+
+* **Usage**: `const { data, loading } = useRealtimeResource('users', { id: userId });`
+* **Returns**:
+* `data`: The single record object (or `null`).
+
+
 
 ## 6. Putting It All Together: A Practical Example
 
-Let's build a paginated, real-time page to display system audit logs. This demonstrates how all the core hooks work in harmony.
+Let's build a paginated, real-time page to display audit logs.
 
 ```jsx
-import React from 'react';
+import React, { useMemo } from 'react';
 import { useRealtimeResource } from '../../hooks/useRealtimeResource';
 import { useTableControls } from '../../hooks/useTableControls';
-import { DataTable, Alert, PageHeader } from '../../components/UI';
-import { formatDistanceToNow } from 'date-fns'; // for formatting dates
+import { DataTable, Alert } from '../../components/UI';
+import { formatDistanceToNow } from 'date-fns';
 
-// This component will render our page
 function AuditLogPage() {
-  // 1. Set up state management for our table UI (pagination, search, sorting).
-  //    We provide initial sorting settings.
+  // 1. Set up table controls (pagination, search, sorting)
   const { 
     queryParams,
     setPage, 
@@ -171,49 +170,43 @@ function AuditLogPage() {
     initialSort: { key: 'createdAt', direction: 'desc' }
   });
 
-  // 2. Fetch the data.
-  //    We pass the resource name ('audit_logs') and the queryParams from our controls hook.
-  //    The hook handles all the complexity of fetching, caching, and subscribing to real-time updates.
+  // 2. Fetch the data using the unified hook
+  //    The hook joins the 'audit_logs' socket room automatically.
   const { data, meta, loading, error } = useRealtimeResource('audit_logs', { 
     queryParams
   });
 
-  // 3. Define the columns for our DataTable.
-  //    This declarative structure tells the table how to render each piece of data.
-  const columns = React.useMemo(() => [
+  // 3. Define columns. Note: Use 'render' for custom cell content.
+  const columns = useMemo(() => [
     { header: 'Description', accessor: 'description' },
-    { header: 'Initiator', accessor: 'Initiator.username', default: 'System' },
-    { header: 'Operation', accessor: 'operation' },
+    { header: 'Initiator', accessor: 'initiator', render: (row) => row.Initiator?.username || 'System' },
+    { header: 'Operation', accessor: 'operation', sortable: true },
     { 
       header: 'Timestamp', 
       accessor: 'createdAt',
-      // Use a custom cell renderer to format the date
-      cell: ({ value }) => `${formatDistanceToNow(new Date(value))} ago`
+      sortable: true,
+      render: (row) => `${formatDistanceToNow(new Date(row.createdAt))} ago`
     },
   ], []);
 
-  // 4. Handle error states gracefully.
-  if (error) {
-    return <Alert type="error" title="Data Sync Error" message={error.message} />;
-  }
+  if (error) return <Alert type="error" title="Sync Error" message={error} />;
 
-  // 5. Render the UI.
-  //    We connect the state and setters from our hooks to the DataTable component props.
+  // 4. Render the DataTable
   return (
     <div className="space-y-6">
-      <PageHeader title="System Audit Logs" />
+      <h1 className="text-2xl font-bold">System Audit Logs</h1>
       
       <DataTable 
         columns={columns} 
-        data={data || []} // Default to an empty array while loading
+        data={data || []} 
         isLoading={loading}
         
-        // Search and Sort controls
+        // Connect controls
         onSearch={setSearch}
         onSort={handleSortChange}
-        searchPlaceholder="Filter by description or initiator..."
+        searchPlaceholder="Filter logs..."
 
-        // Server-side pagination controls
+        // Server-side pagination config
         serverSidePagination={{
           totalItems: meta?.totalItems || 0,
           currentPage: queryParams.page,
@@ -226,6 +219,6 @@ function AuditLogPage() {
 }
 
 export default AuditLogPage;
+
 ```
 
-This example showcases the power of our architecture. The component itself is simple and declarative. It describes *what* state it needs and *how* to display it, while the custom hooks handle all the complex logic of fetching, state management, and real-time updates.
