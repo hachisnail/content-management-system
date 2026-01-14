@@ -150,6 +150,7 @@ export const Checkbox = ({ checked, onChange, disabled }) => (
   />
 );
 
+
 export const DataTable = ({
   columns,
   data = [],
@@ -168,6 +169,21 @@ export const DataTable = ({
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [searchValue, setSearchValue] = useState("");
 
+  const [cachedData, setCachedData] = useState([]);
+
+  useEffect(() => {
+    if (data && data.length > 0) {
+      setCachedData(data);
+    }
+  }, [data]);
+
+
+  const activeData = useMemo(() => {
+    if (data && data.length > 0) return data;
+    if (isLoading && cachedData.length > 0) return cachedData;
+    return [];
+  }, [data, isLoading, cachedData]);
+
   const itemsPerPage = serverSidePagination?.itemsPerPage || 10;
   const currentPage = serverSidePagination
     ? serverSidePagination.currentPage
@@ -178,7 +194,8 @@ export const DataTable = ({
 
   const totalItems = serverSidePagination
     ? serverSidePagination.totalItems
-    : data.length;
+    : activeData.length;
+    
   const totalPages = Math.max(1, Math.ceil(totalItems / itemsPerPage));
 
   const [isJumping, setIsJumping] = useState(false);
@@ -191,9 +208,9 @@ export const DataTable = ({
   }, [serverSidePagination?.search]);
 
   const paginatedData = useMemo(() => {
-    if (serverSidePagination) return data;
+    if (serverSidePagination) return activeData;
 
-    let items = [...data];
+    let items = [...activeData];
     if (sortConfig.key) {
       items.sort((a, b) => {
         const valA = a[sortConfig.key] || "";
@@ -207,7 +224,7 @@ export const DataTable = ({
       (currentPage - 1) * itemsPerPage,
       currentPage * itemsPerPage
     );
-  }, [data, sortConfig, serverSidePagination, currentPage, itemsPerPage]);
+  }, [activeData, sortConfig, serverSidePagination, currentPage, itemsPerPage]);
 
   const canGoPrev = currentPage > 1;
   const canGoNext = currentPage < totalPages;
@@ -273,9 +290,12 @@ export const DataTable = ({
 
   const isOnlyOnePage = totalPages <= 1;
 
-  if (isLoading) {
+
+  const showFullLoader = isLoading && (!activeData || activeData.length === 0);
+
+  if (showFullLoader) {
     return (
-      <div className="min-h-[400px] flex items-center justify-center bg-white border border-zinc-200 rounded-lg">
+      <div className="min-h-100 flex items-center justify-center bg-white border border-zinc-200 rounded-lg">
         <div className="flex flex-col items-center gap-3 text-zinc-400">
           <Loader2 className="animate-spin w-8 h-8 text-zinc-300" />
           <span className="text-sm font-medium">Loading data...</span>
@@ -289,8 +309,12 @@ export const DataTable = ({
     paginatedData.every((row) => selectedIds.has(row.id));
 
   return (
-    <div className="bg-white border border-zinc-200 rounded-lg shadow-sm overflow-hidden flex flex-col relative">
-      {/* BULK ACTION BAR */}
+    <div
+      className={`bg-white border border-zinc-200 rounded-lg shadow-sm overflow-hidden flex flex-col relative transition-opacity duration-300 ${
+        isLoading ? "opacity-60 pointer-events-none" : ""
+      }`}
+    >
+      
       {selectedIds.size > 0 && bulkActionSlot && (
         <div className="absolute top-0 left-0 right-0 z-20 bg-zinc-900 text-white p-3 flex items-center justify-between animate-in slide-in-from-top-2 duration-200">
           <div className="flex items-center gap-4 px-2">
@@ -450,7 +474,7 @@ export const DataTable = ({
 
         <div className="flex gap-2 w-full sm:w-auto justify-between sm:justify-end items-center">
           <button
-            className="px-3 py-1.5 border border-zinc-200 rounded-md hover:bg-zinc-50 hover:text-zinc-900 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent flex items-center gap-1 transition-all active:scale-95"
+            className="px-3 py-1.5 select-none border border-zinc-200 rounded-md hover:bg-zinc-50 hover:text-zinc-900 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent flex items-center gap-1 transition-all active:scale-95"
             disabled={!canGoPrev || isOnlyOnePage}
             onClick={() => onPageChange(currentPage - 1)}
           >
@@ -494,7 +518,7 @@ export const DataTable = ({
           </div>
 
           <button
-            className="px-3 py-1.5 border border-zinc-200 rounded-md hover:bg-zinc-50 hover:text-zinc-900 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent flex items-center gap-1 transition-all active:scale-95"
+            className="px-3 py-1.5 border select-none border-zinc-200 rounded-md hover:bg-zinc-50 hover:text-zinc-900 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent flex items-center gap-1 transition-all active:scale-95"
             disabled={!canGoNext || isOnlyOnePage}
             onClick={() => onPageChange(currentPage + 1)}
           >
@@ -505,6 +529,7 @@ export const DataTable = ({
     </div>
   );
 };
+
 
 // --- CARDS & BUTTONS ---
 export const Card = ({ children, className = "", title, action, footer }) => (

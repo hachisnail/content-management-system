@@ -5,6 +5,7 @@ import { useRealtimeResource } from "../../../../hooks/useRealtimeResource";
 import { useAuth } from "../../../../context/AuthContext";
 import { useConfig } from "../../../../context/ConfigContext";
 import { decodeId } from "../../../../utils/idEncoder";
+import { useUserManagement } from "../hooks/useUserManagement";
 import {
   Button,
   Input,
@@ -28,7 +29,24 @@ import {
   ShieldAlert,
   AtSign,
   Shield,
+  Edit,
+  X,
+  Power,
+  Ban,
+  CheckCircle,
 } from "lucide-react";
+
+// --- HELPER: Read-Only Field Component ---
+const InfoField = ({ label, value, icon: Icon }) => (
+  <div className="space-y-1">
+    <label className="text-xs font-bold uppercase tracking-wide text-zinc-400 flex items-center gap-1.5">
+      {Icon && <Icon size={12} />} {label}
+    </label>
+    <div className="text-sm font-medium text-zinc-900 border-b border-zinc-100 pb-1">
+      {value || <span className="text-zinc-300 italic">Not set</span>}
+    </div>
+  </div>
+);
 
 function UserProfile() {
   const { id: encodedId } = useParams();
@@ -39,10 +57,13 @@ function UserProfile() {
   const userId = decodeId(encodedId);
   const { setBreadcrumbLabel } = useOutletContext() || {};
 
+  // --- STATE ---
   const [loading, setLoading] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
   const [message, setMessage] = useState({ type: null, text: "" });
   const [showConfirm, setShowConfirm] = useState(false);
 
+  // --- DATA FETCHING ---
   const { data: user } = useRealtimeResource("users", { id: userId });
   const { data: logsData } = useRealtimeResource("audit_logs", {
     queryParams: {
@@ -56,22 +77,41 @@ function UserProfile() {
   });
   const logs = logsData || [];
 
-  // --- REFINED PERMISSION LOGIC ---
-  const isSelf = parseInt(currentUser?.id) === parseInt(userId);
+  // --- MANAGEMENT HOOK ---
+  const {
+    activeModal,
+    closeModal,
+    promptDisconnect,
+    promptDisable,
+    promptEnable,
+    confirmDisconnect,
+    confirmDisable,
+    confirmEnable,
+    statusMsg: managementStatusMsg,
+    setStatusMsg: setManagementStatusMsg,
+  } = useUserManagement(user ? [user] : []);
+
+  // --- PERMISSION LOGIC ---
+  // FIX: Use String() comparison against the FETCHED user object for accuracy
+  const isSelf = user && currentUser && String(currentUser.id) === String(user.id);
+  
   const isSuperAdmin = currentUser?.role?.includes("super_admin");
+  const isProtectedTarget = user?.role?.includes("super_admin") && !isSuperAdmin;
 
-  // 1. Basic Edit (Name, Phone): Self OR Manage Users Permission
-  const canEditBasic =
-    isSelf || hasPermission(currentUser, PERMISSIONS.MANAGE_USERS);
-
-  // 2. Roles Edit: Super Admin OR Specific Permission
-  const canEditRoles = hasPermission(
-    currentUser,
-    PERMISSIONS.MANAGE_USER_ROLES
-  );
-
-  // 3. Identity Edit (Email/Username): Generally restricted to Super Admin or high-level managers
+  const canEditBasic = isSelf || hasPermission(currentUser, PERMISSIONS.MANAGE_USERS);
+  const canEditRoles = hasPermission(currentUser, PERMISSIONS.MANAGE_USER_ROLES);
   const canEditIdentity = isSuperAdmin;
+
+  // FIX: Ensure !isSelf is strictly checked for dangerous actions
+  const canDisconnect =
+    hasPermission(currentUser, PERMISSIONS.DISCONNECT_USERS) &&
+    !isProtectedTarget &&
+    !isSelf;
+
+  const canManageStatus =
+    hasPermission(currentUser, PERMISSIONS.MANAGE_USER_STATUS) &&
+    !isProtectedTarget &&
+    !isSelf;
 
   const [formData, setFormData] = useState({
     username: "",
@@ -110,10 +150,20 @@ function UserProfile() {
     };
   }, [user, setBreadcrumbLabel]);
 
+  // Sync management messages
+  useEffect(() => {
+    if (managementStatusMsg) {
+      setMessage({
+        type: managementStatusMsg.type,
+        text: managementStatusMsg.text,
+      });
+    }
+  }, [managementStatusMsg]);
+
   const hasChanges = JSON.stringify(formData) !== JSON.stringify(initialData);
 
   const handleRoleToggle = (roleValue) => {
-    if (!canEditRoles) return;
+    if (!canEditRoles || !isEditing) return;
     setFormData((prev) => {
       const exists = prev.role.includes(roleValue);
       const newRoles = exists
@@ -129,6 +179,12 @@ function UserProfile() {
     setShowConfirm(true);
   };
 
+  const handleCancelEdit = () => {
+    setFormData(initialData);
+    setIsEditing(false);
+    setMessage({ type: null, text: "" });
+  };
+
   const handleConfirmUpdate = async () => {
     setShowConfirm(false);
     setLoading(true);
@@ -136,6 +192,7 @@ function UserProfile() {
       await api.updateUser(userId, formData);
       setMessage({ type: "success", text: "Profile updated successfully." });
       setInitialData({ ...formData });
+      setIsEditing(false);
     } catch (err) {
       setMessage({ type: "error", text: err.message || "Update failed." });
     } finally {
@@ -158,7 +215,8 @@ function UserProfile() {
 
   return (
     <div className="max-w-6xl mx-auto space-y-8 animate-in fade-in duration-500">
-      <div className="flex items-center justify-between">
+      {/* HEADER & ACTIONS */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <Button
           variant="ghost"
           onClick={() => navigate("/users")}
@@ -166,28 +224,68 @@ function UserProfile() {
         >
           <ArrowLeft size={16} className="mr-2" /> Back to Directory
         </Button>
+
+        <div className="flex items-center gap-2">
+          {canDisconnect && (
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={Power}
+              disabled={!user.isOnline}
+              onClick={() => promptDisconnect(user.id)}
+              className="text-zinc-600 border-zinc-300 hover:text-red-600 hover:border-red-200 hover:bg-red-50"
+            >
+              Force Disconnect
+            </Button>
+          )}
+
+          {canManageStatus &&
+            (user.status === "disabled" ? (
+              <Button
+                variant="secondary"
+                size="sm"
+                icon={CheckCircle}
+                onClick={() => promptEnable(user.id)}
+                className="text-green-600 border-green-200 bg-green-50 hover:bg-green-100"
+              >
+                Enable Account
+              </Button>
+            ) : (
+              <Button
+                variant="danger"
+                size="sm"
+                icon={Ban}
+                onClick={() => promptDisable(user.id)}
+              >
+                Disable Account
+              </Button>
+            ))}
+        </div>
       </div>
 
       {message.text && (
         <Alert
           type={message.type}
           message={message.text}
-          onClose={() => setMessage({ type: null, text: "" })}
+          onClose={() => {
+            setMessage({ type: null, text: "" });
+            setManagementStatusMsg(null);
+          }}
         />
       )}
 
-      {!canEditBasic && (
+      {!canEditBasic && !canEditRoles && !canEditIdentity && (
         <Alert
           type="warning"
           icon={ShieldAlert}
           title="Restricted Access"
-          message="You are viewing this profile in Read-Only mode."
+          message="You do not have permission to edit this profile."
           className="bg-amber-50 border-amber-200 text-amber-800"
         />
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        {/* INFO CARD */}
+        {/* LEFT COLUMN: AVATAR & QUICK STATS */}
         <div className="lg:col-span-4 space-y-6">
           <ComponentErrorBoundary title="User Info Failed">
             <Card className="text-center p-8">
@@ -238,142 +336,221 @@ function UserProfile() {
           </ComponentErrorBoundary>
         </div>
 
-        {/* DETAILS SECTION */}
+        {/* RIGHT COLUMN: DETAILS & FORM */}
         <div className="lg:col-span-8 space-y-8">
           <ComponentErrorBoundary title="Edit Form Failed">
             <Card
               title={
-                <div className="flex items-center gap-2">
-                  <span>User Information</span>
-                  {!canEditBasic && (
-                    <Badge variant="warning">
-                      <Lock size={10} className="mr-1" /> Read Only
-                    </Badge>
-                  )}
+                <div className="flex items-center justify-between w-full">
+                  <div className="flex items-center gap-2">
+                    <span>User Information</span>
+                    {!isEditing && (
+                      <Badge variant="neutral">
+                        <Lock size={10} className="mr-1" /> View Only
+                      </Badge>
+                    )}
+                  </div>
+
+                  {/* EDIT TOGGLE BUTTON */}
+                  {(canEditBasic || canEditRoles || canEditIdentity) &&
+                    (!isEditing ? (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        icon={Edit}
+                        onClick={() => setIsEditing(true)}
+                      >
+                        Edit Profile
+                      </Button>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        icon={X}
+                        onClick={handleCancelEdit}
+                        className="text-zinc-500 hover:text-zinc-900"
+                      >
+                        Cancel Editing
+                      </Button>
+                    ))}
                 </div>
               }
             >
-              <form onSubmit={handleSaveClick} className="space-y-6">
-                {/* SYSTEM ROLES SECTION */}
-                <div className="bg-zinc-50 p-4 rounded-lg border border-zinc-200">
-                  <label className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-zinc-500 mb-3">
-                    <Shield size={14} /> System Roles{" "}
-                    {canEditRoles ? "" : "(Locked)"}
-                  </label>
-                  <div className="flex flex-wrap gap-2">
-                    {Object.values(ROLES).map((role) => {
-                      const isSelected = formData.role.includes(role);
-                      return (
-                        <button
-                          key={role}
-                          type="button"
-                          onClick={() => handleRoleToggle(role)}
-                          disabled={!canEditRoles}
-                          className={`
-                            px-3 py-1.5 rounded text-xs font-medium border transition-all
-                            ${
-                              isSelected
-                                ? "bg-indigo-600 text-white border-indigo-600 shadow-sm"
-                                : "bg-white text-zinc-600 border-zinc-300 hover:bg-zinc-50"
-                            }
-                            ${
-                              !canEditRoles
-                                ? "opacity-50 cursor-not-allowed"
-                                : "cursor-pointer active:scale-95"
-                            }
-                          `}
-                        >
-                          {role.replace(/_/g, " ").toUpperCase()}
-                        </button>
-                      );
-                    })}
+              {/* --- VIEW MODE: Clean Text Display --- */}
+              {!isEditing ? (
+                <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                  <div className="bg-zinc-50/50 p-4 rounded-lg border border-zinc-100">
+                    <label className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-zinc-500 mb-3">
+                      <Shield size={14} /> System Roles
+                    </label>
+                    <div className="flex flex-wrap gap-2">
+                      {formData.role.length > 0 ? (
+                        formData.role.map((r) => (
+                          <span
+                            key={r}
+                            className="px-2.5 py-1 rounded bg-white border border-zinc-200 text-xs font-medium text-zinc-600 uppercase tracking-wide"
+                          >
+                            {r.replace(/_/g, " ")}
+                          </span>
+                        ))
+                      ) : (
+                        <span className="text-zinc-400 italic text-sm">
+                          No roles assigned
+                        </span>
+                      )}
+                    </div>
                   </div>
-                  {!canEditRoles && (
-                    <p className="text-[10px] text-zinc-400 mt-2">
-                      Roles can only be managed by administrators.
-                    </p>
-                  )}
-                </div>
 
-                <div className="h-px bg-zinc-100"></div>
-
-                {/* IDENTITY FIELDS */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <Input
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
+                    <InfoField
                       label="Email Address"
-                      icon={Mail}
                       value={formData.email}
-                      onChange={(e) =>
-                        setFormData({ ...formData, email: e.target.value })
-                      }
-                      disabled={!canEditIdentity}
+                      icon={Mail}
                     />
-                  </div>
-                  <div>
-                    <Input
+                    <InfoField
                       label="Username"
-                      icon={AtSign}
                       value={formData.username}
-                      onChange={(e) =>
-                        setFormData({ ...formData, username: e.target.value })
+                      icon={AtSign}
+                    />
+                    <InfoField
+                      label="First Name"
+                      value={formData.firstName}
+                    />
+                    <InfoField
+                      label="Last Name"
+                      value={formData.lastName}
+                    />
+                    <InfoField
+                      label="Contact Number"
+                      value={formData.contactNumber}
+                      icon={Phone}
+                    />
+                    <InfoField
+                      label="Birthday"
+                      value={
+                        formData.birthDay
+                          ? new Date(formData.birthDay).toLocaleDateString()
+                          : null
                       }
-                      disabled={!canEditIdentity}
+                      icon={Calendar}
                     />
                   </div>
                 </div>
+              ) : (
+                /* --- EDIT MODE: Form Inputs --- */
+                <form
+                  onSubmit={handleSaveClick}
+                  className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300"
+                >
+                  {/* SYSTEM ROLES EDIT */}
+                  <div className="bg-zinc-50 p-4 rounded-lg border border-zinc-200">
+                    <label className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-zinc-500 mb-3">
+                      <Shield size={14} /> System Roles{" "}
+                      {!canEditRoles && "(Locked)"}
+                    </label>
+                    <div className="flex flex-wrap gap-2">
+                      {Object.values(ROLES).map((role) => {
+                        const isSelected = formData.role.includes(role);
+                        const isDisabled = !canEditRoles;
+                        return (
+                          <button
+                            key={role}
+                            type="button"
+                            onClick={() => handleRoleToggle(role)}
+                            disabled={isDisabled}
+                            className={`
+                              px-3 py-1.5 rounded text-xs font-medium border transition-all
+                              ${
+                                isSelected
+                                  ? "bg-indigo-600 text-white border-indigo-600 shadow-sm"
+                                  : "bg-white text-zinc-600 border-zinc-300 hover:bg-zinc-50"
+                              }
+                              ${
+                                isDisabled
+                                  ? "opacity-60 cursor-not-allowed"
+                                  : "cursor-pointer active:scale-95"
+                              }
+                            `}
+                          >
+                            {role.replace(/_/g, " ").toUpperCase()}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
 
-                {!canEditIdentity && (
-                  <p className="text-[10px] text-zinc-400 mt-[-10px] ml-1">
-                    Identity fields are locked.
-                  </p>
-                )}
+                  <div className="h-px bg-zinc-100"></div>
 
-                {/* PERSONAL FIELDS */}
-                <div className="grid grid-cols-2 gap-4">
-                  <Input
-                    label="First Name"
-                    value={formData.firstName}
-                    onChange={(e) =>
-                      setFormData({ ...formData, firstName: e.target.value })
-                    }
-                    disabled={!canEditBasic}
-                  />
-                  <Input
-                    label="Last Name"
-                    value={formData.lastName}
-                    onChange={(e) =>
-                      setFormData({ ...formData, lastName: e.target.value })
-                    }
-                    disabled={!canEditBasic}
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <Input
-                    label="Contact Number"
-                    icon={Phone}
-                    value={formData.contactNumber}
-                    onChange={(e) =>
-                      setFormData({
-                        ...formData,
-                        contactNumber: e.target.value,
-                      })
-                    }
-                    disabled={!canEditBasic}
-                  />
-                  <Input
-                    label="Birthday"
-                    type="date"
-                    icon={Calendar}
-                    value={formData.birthDay}
-                    onChange={(e) =>
-                      setFormData({ ...formData, birthDay: e.target.value })
-                    }
-                    disabled={!canEditBasic}
-                  />
-                </div>
+                  {/* IDENTITY FIELDS */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <Input
+                        label="Email Address"
+                        icon={Mail}
+                        value={formData.email}
+                        onChange={(e) =>
+                          setFormData({ ...formData, email: e.target.value })
+                        }
+                        disabled={!canEditIdentity}
+                      />
+                    </div>
+                    <div>
+                      <Input
+                        label="Username"
+                        icon={AtSign}
+                        value={formData.username}
+                        onChange={(e) =>
+                          setFormData({ ...formData, username: e.target.value })
+                        }
+                        disabled={!canEditIdentity}
+                      />
+                    </div>
+                  </div>
 
-                {canEditBasic && (
+                  {/* PERSONAL FIELDS */}
+                  <div className="grid grid-cols-2 gap-4">
+                    <Input
+                      label="First Name"
+                      value={formData.firstName}
+                      onChange={(e) =>
+                        setFormData({ ...formData, firstName: e.target.value })
+                      }
+                      disabled={!canEditBasic}
+                    />
+                    <Input
+                      label="Last Name"
+                      value={formData.lastName}
+                      onChange={(e) =>
+                        setFormData({ ...formData, lastName: e.target.value })
+                      }
+                      disabled={!canEditBasic}
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <Input
+                      label="Contact Number"
+                      icon={Phone}
+                      value={formData.contactNumber}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          contactNumber: e.target.value,
+                        })
+                      }
+                      disabled={!canEditBasic}
+                    />
+                    <Input
+                      label="Birthday"
+                      type="date"
+                      icon={Calendar}
+                      value={formData.birthDay}
+                      onChange={(e) =>
+                        setFormData({ ...formData, birthDay: e.target.value })
+                      }
+                      disabled={!canEditBasic}
+                    />
+                  </div>
+
                   <div className="pt-2 flex justify-end">
                     <Button
                       type="submit"
@@ -390,8 +567,8 @@ function UserProfile() {
                       {hasChanges ? "Save Changes" : "No Changes"}
                     </Button>
                   </div>
-                )}
-              </form>
+                </form>
+              )}
             </Card>
           </ComponentErrorBoundary>
 
@@ -436,6 +613,7 @@ function UserProfile() {
         </div>
       </div>
 
+      {/* --- MODALS --- */}
       <ConfirmationModal
         isOpen={showConfirm}
         onClose={() => setShowConfirm(false)}
@@ -444,6 +622,41 @@ function UserProfile() {
         message={`Are you sure you want to update the profile information for ${user.firstName}?`}
         confirmLabel="Save Changes"
       />
+
+      {activeModal.type === "DISCONNECT" && (
+        <ConfirmationModal
+          isOpen={true}
+          onClose={closeModal}
+          onConfirm={confirmDisconnect}
+          title="Disconnect User?"
+          message="This will immediately terminate the user's active session."
+          confirmLabel="Force Disconnect"
+          isDangerous={true}
+        />
+      )}
+
+      {activeModal.type === "DISABLE" && (
+        <ConfirmationModal
+          isOpen={true}
+          onClose={closeModal}
+          onConfirm={confirmDisable}
+          title="Disable Account?"
+          message="This will disconnect the user and prevent them from logging in again."
+          confirmLabel="Disable Account"
+          isDangerous={true}
+        />
+      )}
+
+      {activeModal.type === "ENABLE" && (
+        <ConfirmationModal
+          isOpen={true}
+          onClose={closeModal}
+          onConfirm={confirmEnable}
+          title="Re-enable Account?"
+          message="This user will be allowed to log in again immediately."
+          confirmLabel="Enable Account"
+        />
+      )}
     </div>
   );
 }

@@ -105,15 +105,7 @@ function UserDirectory() {
     return () => socket.off("users_updated", handleUpdate);
   }, []);
 
-  const handleDebugActivityUpdate = async () => {
-    if (!currentUser) return;
-    try {
-      await api.updateUser(currentUser.id, { last_active: new Date() });
-      setStatusMsg({ type: "success", text: "Debug: Signal sent." });
-    } catch (err) {
-      setStatusMsg({ type: "error", text: "Debug failed: " + err.message });
-    }
-  };
+
 
   const getColumns = (isPendingTable = false) => [
     {
@@ -208,15 +200,7 @@ function UserDirectory() {
           </p>
         </div>
         <div className="flex gap-2">
-          {hasPermission(currentUser, PERMISSIONS.VIEW_SOCKET_TEST) && (
-            <Button
-              variant="secondary"
-              icon={Zap}
-              onClick={handleDebugActivityUpdate}
-            >
-              Debug: Touch Activity
-            </Button>
-          )}
+
           {hasPermission(currentUser, PERMISSIONS.CREATE_USERS) && (
             <Button
               variant="primary"
@@ -253,7 +237,7 @@ function UserDirectory() {
           <DataTable
             columns={getColumns(false)}
             data={activeUsers}
-            isLoading={activeLoading && activeControls.queryParams.page === 1}
+            isLoading={activeLoading}
             onSearch={activeControls.setSearch}
             onSort={activeControls.handleSortChange}
             searchPlaceholder="Search active members..."

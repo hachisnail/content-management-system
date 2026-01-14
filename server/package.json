@@ -26,6 +26,7 @@
     "passport-local": "^1.0.0",
     "sequelize": "^6.37.7",
     "socket.io": "^4.8.3",
+    "ulid": "^3.0.2",
     "uuid": "^13.0.0"
   },
   "devDependencies": {

@@ -27,39 +27,23 @@ const Dashboard = () => {
   // --- QA STATE ---
   const [simulatedCrash, setSimulatedCrash] = useState(false);
 
-  // --- DATA ---
-  const { data: usersData } = useRealtimeResource('users', { queryParams: { limit: 1 } });
-  const { data: logsData } = useRealtimeResource('audit_logs', { queryParams: { limit: 5 } });
-  
-  const recentLogs = Array.isArray(logsData) ? logsData : (logsData?.rows || []);
+// --- DATA ---
+const { data: usersData } = useRealtimeResource('users');
+const { data: logsData } = useRealtimeResource('audit_logs', { queryParams: { limit: 5 } });
 
-  // --- DEBUG VERIFICATION ---
-  useEffect(() => {
-    const handleUpdate = (data) => {
-        console.log("%c[Socket] Broadcast Received: users_updated", "color: #00ff00; background: #000; padding: 2px 5px;", data);
-    };
-    
-    socket.on('users_updated', handleUpdate);
-    return () => socket.off('users_updated', handleUpdate);
-  }, []);
+// Normalize shapes (arrays only)
+const users = Array.isArray(usersData) ? usersData : [];
+const logs = Array.isArray(logsData) ? logsData : [];
 
-  // --- TRIGGER ---
-  const handleDebugEmit = async () => {
-    if (!user) return;
-    setDebugLoading(true);
-    try {
-      console.log("1. Sending HTTP Request...");
-      await api.updateUser(user.id, {
-        middleName: user.middleName === '.' ? '' : '.' 
-      });
-      console.log("2. HTTP Request Success. Waiting for Socket Broadcast...");
-    } catch (err) {
-      console.error("Debug Trigger Failed:", err);
-      alert("Failed to send signal: " + err.message);
-    } finally {
-      setDebugLoading(false);
-    }
-  };
+// Stats
+const totalUsers = users.length;
+const activeSessions = users.filter(u => u.isOnline).length;
+const totalLogs = logs.length;
+
+// Recent activity feed
+const recentLogs = logs;
+
+
 
   if (loading) return (
     <div className="h-96 flex items-center justify-center">
@@ -72,32 +56,27 @@ const Dashboard = () => {
   return (
     <div className="space-y-8 animate-in fade-in duration-500 relative">
       
-      {/* QA TOOLBAR: Hidden in production usually */}
-      <div className="absolute top-0 right-0 z-10">
-        <button 
-          onClick={() => setSimulatedCrash(true)}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-red-100 text-red-700 text-xs font-bold rounded-lg hover:bg-red-200 transition-colors shadow-sm border border-red-200"
-          title="Test Error Boundary"
-        >
-          <Bug size={14} />
-          <span>Crash Feed</span>
-        </button>
-      </div>
 
       {/* HEADER */}
       <DashboardHeader 
         user={user} 
-        onDebug={handleDebugEmit} 
-        isDebugLoading={debugLoading} 
-        hasDebugPermission={hasPermission(user, PERMISSIONS.VIEW_SOCKET_TEST)}
+        setSimulatedCrash={setSimulatedCrash}
+
       />
 
       {/* STATS */}
-      <ComponentErrorBoundary title="Statistics Failed">
-        <StatsGrid 
-          usersCount={usersData?.meta?.totalItems} 
-          logsCount={logsData?.meta?.totalItems} 
-        />
+    <ComponentErrorBoundary
+      key={simulatedCrash ? 'crashed' : 'healthy'}
+      title="Activity Feed Failed"
+      onRetry={() => setSimulatedCrash(false)}
+    >
+
+    <StatsGrid
+      usersCount={totalUsers}
+      activeSessions={activeSessions}
+      logsCount={totalLogs}
+    />
+
       </ComponentErrorBoundary>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">

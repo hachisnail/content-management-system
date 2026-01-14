@@ -1,11 +1,12 @@
 import { DataTypes } from 'sequelize';
+import { ulid } from 'ulid'; 
 
 const defineAuditLogModel = (sequelize) => {
   const AuditLog = sequelize.define('AuditLog', {
     id: {
-      type: DataTypes.INTEGER,
+      type: DataTypes.STRING(26), 
+      defaultValue: () => ulid(), 
       primaryKey: true,
-      autoIncrement: true,
     },
     description: {
       type: DataTypes.STRING,
@@ -30,14 +31,11 @@ const defineAuditLogModel = (sequelize) => {
     initiator: {
       type: DataTypes.STRING,
       allowNull: false,
-      // --- FIX: Explicit Collation ---
-      // Forces this column to be compatible with the Users table email column
       collate: 'utf8mb4_general_ci', 
     },
   }, {
     timestamps: true,
     tableName: 'audit_logs',
-    // Ensure the table itself uses the compatible charset
     charset: 'utf8mb4',
     collate: 'utf8mb4_general_ci'
   });

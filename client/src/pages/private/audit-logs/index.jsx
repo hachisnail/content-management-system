@@ -94,7 +94,7 @@ function AuditLogsDirectory() {
         <DataTable 
           columns={columns} 
           data={logs} 
-          isLoading={loading && page === 1}
+          isLoading={loading}
           onSearch={setSearch}
           onSort={handleSortChange}
           searchPlaceholder="Find events by initiator or description..."

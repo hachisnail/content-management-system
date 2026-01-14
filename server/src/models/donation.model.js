@@ -1,8 +1,14 @@
 import { DataTypes } from 'sequelize';
+import { ulid } from 'ulid'; 
 
 const defineDonationModel = (sequelize) => {
   const Donation = sequelize.define('Donation', {
-    // --- Guest Info (Since they have no account) ---
+    id: {
+      type: DataTypes.STRING(26),
+      defaultValue: () => ulid(),
+      primaryKey: true,
+    },
+    
     donorName: {
       type: DataTypes.STRING,
       allowNull: false,
@@ -17,7 +23,6 @@ const defineDonationModel = (sequelize) => {
       allowNull: true,
     },
     
-    // --- Donation Details ---
     itemDescription: {
       type: DataTypes.TEXT,
       allowNull: false,
@@ -27,14 +32,13 @@ const defineDonationModel = (sequelize) => {
       defaultValue: 1,
     },
     
-    // --- Intake Workflow Status ---
     status: {
       type: DataTypes.ENUM('pending', 'review', 'accepted', 'rejected', 'archived'),
       defaultValue: 'pending',
     },
     adminNotes: {
       type: DataTypes.TEXT,
-      allowNull: true, // Internal notes for staff
+      allowNull: true, 
     }
   });
 

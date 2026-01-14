@@ -32,3 +32,21 @@ export const handleNewLogin = async (user) => {
     console.error('Error handling new session:', error);
   }
 };
+
+export const cleanupStaleSessions = async () => {
+  try {
+    console.log('[System] Cleaning up stale user sessions...');
+    
+    await db.User.update(
+      { 
+        isOnline: false, 
+        socketId: [] 
+      }, 
+      { where: {} } 
+    );
+    
+    console.log('[System] Stale sessions cleared. System state is clean.');
+  } catch (error) {
+    console.error('[System] Failed to clear stale sessions:', error);
+  }
+};

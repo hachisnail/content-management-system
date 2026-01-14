@@ -1,8 +1,8 @@
 import React from 'react';
-import { LayoutDashboard, Zap, ShieldCheck } from 'lucide-react';
-import { Button, Badge } from '../../../../components/UI';
+import { LayoutDashboard, Zap, ShieldCheck, Bug } from 'lucide-react';
+import { Button, Badge  } from '../../../../components/UI';
 
-export const DashboardHeader = ({ user, onDebug, isDebugLoading, hasDebugPermission }) => {
+export const DashboardHeader = ({ user, setSimulatedCrash }) => {
   return (
     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-zinc-200 pb-6">
       <div>
@@ -15,18 +15,15 @@ export const DashboardHeader = ({ user, onDebug, isDebugLoading, hasDebugPermiss
         </p>
       </div>
       <div className="flex items-center gap-2">
-         {hasDebugPermission && (
-           <Button 
-             variant="danger" 
-             size="sm" 
-             onClick={onDebug} 
-             isLoading={isDebugLoading}
-             icon={Zap}
-             className="mr-2"
-           >
-             Test Signal
-           </Button>
-         )}
+          <button 
+            onClick={() => setSimulatedCrash(prev => !prev)}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-red-100 text-red-700 text-xs font-bold rounded-lg hover:bg-red-200 transition-colors shadow-sm border border-red-200"
+            title="Test Error Boundary"
+          >
+            <Bug size={14} />
+            <span>Crash Feed</span>
+          </button>
+
 
          <Badge variant="success" className="px-3 py-1">
            <span className="flex items-center gap-1.5">

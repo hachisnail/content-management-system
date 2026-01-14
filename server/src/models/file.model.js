@@ -1,10 +1,11 @@
 import { DataTypes } from 'sequelize';
+import { ulid } from 'ulid'; 
 
 const defineFileModel = (sequelize) => {
   const File = sequelize.define('File', {
     id: {
-      type: DataTypes.UUID,
-      defaultValue: DataTypes.UUIDV4,
+      type: DataTypes.STRING(26), 
+      defaultValue: () => ulid(),
       primaryKey: true,
     },
     fileName: { type: DataTypes.STRING, allowNull: false },
@@ -29,7 +30,6 @@ const defineFileModel = (sequelize) => {
       collate: 'utf8mb4_general_ci' 
     },
     
-    // CHANGED: From INTEGER to STRING to support UUIDs (User) and Ints (Donation)
     relatedId: { 
       type: DataTypes.STRING, 
       allowNull: true 

@@ -1,15 +1,15 @@
 import { DataTypes } from 'sequelize';
+import { ulid } from 'ulid';
 
 const defineUserModel = (sequelize) => {
   const User = sequelize.define(
     'User',
     {
       id: {
-        type: DataTypes.UUID, // CHANGED: Integer -> UUID
-        defaultValue: DataTypes.UUIDV4, // CHANGED: Auto-generate UUIDs
+        type: DataTypes.STRING(26), // CHANGED: UUID -> STRING(26) for ULID
+        defaultValue: () => ulid(), // CHANGED: Use ULID generator
         primaryKey: true,
       },
-      // ... other fields remain the same ...
       username: {
         type: DataTypes.STRING,
         allowNull: true,

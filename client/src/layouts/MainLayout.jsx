@@ -124,11 +124,12 @@ const MainLayout = () => {
           return (
             <React.Fragment key={index}>
               {isLast ? (
-                <span className="font-semibold text-black capitalize truncate max-w-[200px]">
+                <span className="font-semibold text-black uppercase truncate max-w-100">
                   {label}
                 </span>
               ) : (
                 <span className="capitalize">{label}</span>
+
               )}
               {!isLast && <ChevronRight size={14} className="text-zinc-300" />}
             </React.Fragment>

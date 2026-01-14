@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from "react";
+import React, { createContext, useContext, useState, useEffect, useRef } from "react";
 import socket from "../socket";
 import api from "../api";
 import { useRealtimeResource } from "../hooks/useRealtimeResource";
@@ -6,6 +6,10 @@ import { useRealtimeResource } from "../hooks/useRealtimeResource";
 const AuthContext = createContext(null);
 
 export const AuthProvider = ({ children }) => {
+  // --- STATE ---
+  // Track intentional logout to suppress 401 errors during the process
+  const isLoggingOut = useRef(false);
+
   // 1. Initialize State from Local Storage
   const [session, setSession] = useState(() => {
     try {
@@ -16,11 +20,9 @@ export const AuthProvider = ({ children }) => {
     }
   });
 
-  // 2. Fetch Fresh Data (Real-time) using the new centralized hook
+  // 2. Fetch Fresh Data (Real-time)
   const {
     data: liveUser,
-    // We ignore liveLoading here to prevent blocking the UI during background refreshes
-    // loading: liveLoading,
     error: liveError,
   } = useRealtimeResource("users", {
     id: session?.id,
@@ -32,7 +34,6 @@ export const AuthProvider = ({ children }) => {
     if (liveUser && !Array.isArray(liveUser)) {
       setSession((prev) => {
         const newSessionData = { ...prev, ...liveUser };
-        // Only update storage/state if data actually changed to prevent render thrashing
         if (JSON.stringify(prev) !== JSON.stringify(newSessionData)) {
           localStorage.setItem("user", JSON.stringify(newSessionData));
           return newSessionData;
@@ -42,10 +43,6 @@ export const AuthProvider = ({ children }) => {
     }
   }, [liveUser]);
 
-  // 4. Loading State
-  // FIX: Decoupled 'liveLoading' from global router blocking.
-  // Since we initialize from localStorage, we are effectively "loaded" instantly.
-  // The background sync updates the data silently without triggering the full-screen spinner.
   const loading = false;
 
   // --- ACTIONS ---
@@ -56,27 +53,32 @@ export const AuthProvider = ({ children }) => {
     }
 
     if (session) {
-    // NEW: Subscribe to private alerts and chat
-    socket.emitSafe('subscribe_notifications');
-    socket.emitSafe('join_chat');
-  }
+      socket.emitSafe('subscribe_notifications');
+      socket.emitSafe('join_chat');
+    }
   }, [session]);
 
   const login = (userData) => {
+    isLoggingOut.current = false; // Reset flag on login
     setSession(userData);
     localStorage.setItem("user", JSON.stringify(userData));
     if (!socket.connected) socket.connect();
   };
 
   const logout = async (callApi = true) => {
+    // 1. Set flag to ignore incoming 401s from background requests
+    isLoggingOut.current = true;
+
     setSession(null);
     localStorage.removeItem("user");
     if (socket.connected) socket.disconnect();
 
     if (callApi) {
-      api
-        .logout()
-        .catch((err) => console.error("Logout API failed (harmless):", err));
+      try {
+        await api.logout();
+      } catch (err) {
+        console.error("Logout API failed (harmless):", err);
+      }
     }
   };
 
@@ -84,6 +86,10 @@ export const AuthProvider = ({ children }) => {
 
   useEffect(() => {
     const handleUnauthorized = () => {
+      // FIX: If we are intentionally logging out, ignore this event.
+      // This prevents the "Session Expired" alert from showing due to race conditions.
+      if (isLoggingOut.current) return;
+
       logout(false);
       window.location.href = "/auth/login?session_expired=true";
     };
