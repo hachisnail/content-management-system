@@ -11,7 +11,7 @@ export const config = {
   app: {
     port: process.env.PORT || 3000,
     env: process.env.NODE_ENV || 'development',
-    version: '0.5.0',
+    version: '0.5.1',
   },
   db: {
     name: requireEnv('DB_NAME'),

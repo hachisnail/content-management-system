@@ -17,3 +17,8 @@
 - Fixed a race condition in the Users Dashboard that caused syncing problems with real-time updates.
 - Conducted further testing and refinement of the Role-Based Access Control (RBAC) system.
 
+## v0.5.1
+
+### Fixes / Improvements
+- Updated `scripts/bump-version.js` to improve automation and staging checks.
+- Minor internal improvements to versioning workflow.
