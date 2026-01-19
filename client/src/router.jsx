@@ -7,7 +7,6 @@ import {
 
 // --- LAYOUTS ---
 import MainLayout from "./layouts/MainLayout";
-// import AuthLayout from "./layouts/AuthLayout";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { RequireAuth, RequirePermission } from "./components/RouteGuards";
 
@@ -15,7 +14,8 @@ import { RequireAuth, RequirePermission } from "./components/RouteGuards";
 import LoginTest from "./pages/LoginTest";
 import Register from "./pages/public/Register";
 import CompleteRegistration from "./pages/public/CompleteRegistration";
-import ErrorPage from "./pages/error/ErrorPage"; // <--- IMPORT ADDED
+import ErrorPage from "./pages/error/ErrorPage";
+import SetupAdmin from "./pages/public/SetupAdmin";
 
 // --- PRIVATE MODULES ---
 import Dashboard from "./pages/private/dashboard";
@@ -30,33 +30,38 @@ import UserProfile from "./pages/private/users-dashboard/subpages/UserProfile";
 import AuditLogs from "./pages/private/audit-logs";
 import AuditLogDetails from "./pages/private/audit-logs/subpages/AuditLogDetails";
 
-// --- DEVELOPMENT / ADMIN TOOLS ---
+// Admin / Tools
+import GeneralTrashBin from "./pages/private/trash-bin"; // <--- IMPORT ADDED
+import TrashItemDetails from "./pages/private/trash-bin/subpages/TrashItemDetails";
 import Monitor from "./pages/private/_development_pages/Monitor";
 import AdminTest from "./pages/private/_development_pages/AdminTest";
 import SocketTest from "./pages/private/_development_pages/SocketTest";
 import TestDashboard from "./pages/private/_development_pages/TestDashboard";
+import FileTestPage from "./pages/test/FileTestPage";
 
-// Permission Constants
+// Permission Constants (Must match Backend Keys)
 const P = {
   VIEW_DASHBOARD: "view_dashboard",
   VIEW_MONITOR: "view_monitor",
-  VIEW_AUDIT_LOGS: "view_audit_logs",
+  VIEW_AUDIT_LOGS: "read_audit_logs", 
   VIEW_ADMIN_TOOLS: "view_admin_tools",
   VIEW_SOCKET_TEST: "view_socket_test",
-  VIEW_USERS: "view_users",
-  MANAGE_USERS: "manage_users",
+
+  // User CRUD
+  VIEW_USERS: "read_users",
   CREATE_USERS: "create_users",
+
+  // Trash CRUD
+  READ_TRASH: "read_trash", // <--- ADDED
 };
 
 const routes = createRoutesFromElements(
   <Route>
     {/* 1. PUBLIC AUTHENTICATION */}
-    <Route
-      path="/auth"
-      errorElement={<ErrorBoundary />}
-    >
+    <Route path="/auth" errorElement={<ErrorBoundary />}>
       <Route path="login" element={<LoginTest />} />
       <Route path="register" element={<Register />} />
+      <Route path="setup-admin" element={<SetupAdmin />} />
     </Route>
 
     <Route
@@ -68,7 +73,6 @@ const routes = createRoutesFromElements(
     {/* 2. PROTECTED APP SHELL */}
     <Route element={<RequireAuth />}>
       <Route path="/" element={<MainLayout />} errorElement={<ErrorBoundary />}>
-        
         {/* Redirect Root to Dashboard */}
         <Route index element={<Navigate to="/dashboard" replace />} />
 
@@ -81,7 +85,7 @@ const routes = createRoutesFromElements(
           <Route path="users" element={<UserDirectory />} />
           <Route path="users/:id" element={<UserProfile />} />
         </Route>
-        
+
         <Route element={<RequirePermission permission={P.CREATE_USERS} />}>
           <Route path="users/invite" element={<InviteUser />} />
         </Route>
@@ -90,6 +94,13 @@ const routes = createRoutesFromElements(
         <Route element={<RequirePermission permission={P.VIEW_AUDIT_LOGS} />}>
           <Route path="audit-logs" element={<AuditLogs />} />
           <Route path="audit-logs/:id" element={<AuditLogDetails />} />
+        </Route>
+
+        {/* --- MODULE: TRASH BIN --- */}
+        {/* Only users with 'read_trash' can access the route */}
+        <Route element={<RequirePermission permission={P.READ_TRASH} />}>
+          <Route path="admin/trash" element={<GeneralTrashBin />} />
+          <Route path="admin/trash/:id" element={<TrashItemDetails />} /> {/* <--- ADD THIS */}
         </Route>
 
         {/* --- MODULE: DEVELOPMENT & ADMIN TOOLS --- */}
@@ -105,12 +116,11 @@ const routes = createRoutesFromElements(
           <Route path="socket-test" element={<SocketTest />} />
           <Route path="test-dashboard" element={<TestDashboard />} />
         </Route>
-
+        <Route path="file-test" element={<FileTestPage />} />
       </Route>
     </Route>
 
     {/* 3. CATCH-ALL (404) */}
-    {/* UPDATED: Now renders the ErrorPage instead of redirecting */}
     <Route path="*" element={<ErrorPage code={404} />} />
   </Route>
 );

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { Outlet, Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useConfig } from "../context/ConfigContext";
+import { APP_VERSION } from '../config'
 
 import {
   LayoutGrid,
@@ -22,6 +23,7 @@ import {
   Activity,
   ShieldAlert,
   Terminal,
+  Trash2, // <--- Import Trash Icon
 } from "lucide-react";
 
 import { ConfirmationModal, Dropdown, Avatar } from "../components/UI";
@@ -143,7 +145,8 @@ const MainLayout = () => {
   const hasDevAccess =
     hasPermission(user, PERMISSIONS.VIEW_MONITOR) ||
     hasPermission(user, PERMISSIONS.VIEW_SOCKET_TEST) ||
-    hasPermission(user, PERMISSIONS.VIEW_ADMIN_TOOLS);
+    hasPermission(user, PERMISSIONS.VIEW_ADMIN_TOOLS) ||
+    hasPermission(user, PERMISSIONS.READ_TRASH); // Added Trash check
 
   return (
     <div className="flex h-screen bg-zinc-100 text-zinc-900 overflow-hidden font-sans selection:bg-black selection:text-white">
@@ -171,6 +174,7 @@ const MainLayout = () => {
             }`}
           >
             MASCD<span className="font-light text-zinc-500">MIS</span>
+            <span className="ml-1 text-xs font-mono text-zinc-500">v{APP_VERSION}</span>
           </span>
           <button
             onClick={() => setIsCollapsed(!isCollapsed)}
@@ -205,7 +209,7 @@ const MainLayout = () => {
             isActive={isActive("/dashboard")}
           />
 
-          {hasPermission(user, PERMISSIONS.VIEW_USERS) && (
+          {hasPermission(user, PERMISSIONS.READ_USERS) && (
             <NavItem
               to="/users"
               icon={Users}
@@ -215,7 +219,7 @@ const MainLayout = () => {
             />
           )}
 
-          {hasPermission(user, PERMISSIONS.VIEW_AUDIT_LOGS) && (
+          {hasPermission(user, PERMISSIONS.READ_AUDIT_LOGS) && (
             <NavItem
               to="/audit-logs"
               icon={FileCode}
@@ -229,6 +233,17 @@ const MainLayout = () => {
           {hasDevAccess && (
             <>
               <NavSectionTitle label="System Tools" isCollapsed={isCollapsed} />
+
+              {/* NEW TRASH BIN ITEM */}
+              {hasPermission(user, PERMISSIONS.READ_TRASH) && (
+                <NavItem
+                  to="/admin/trash"
+                  icon={Trash2}
+                  label="Recycle Bin"
+                  isCollapsed={isCollapsed}
+                  isActive={isActive("/admin/trash")}
+                />
+              )}
 
               {hasPermission(user, PERMISSIONS.VIEW_MONITOR) && (
                 <NavItem
@@ -247,16 +262,6 @@ const MainLayout = () => {
                   label="Socket IO"
                   isCollapsed={isCollapsed}
                   isActive={isActive("/socket-test")}
-                />
-              )}
-
-              {hasPermission(user, PERMISSIONS.VIEW_SOCKET_TEST) && (
-                <NavItem
-                  to="/test-dashboard"
-                  icon={Terminal}
-                  label="Console"
-                  isCollapsed={isCollapsed}
-                  isActive={isActive("/test-dashboard")}
                 />
               )}
 
@@ -313,7 +318,6 @@ const MainLayout = () => {
               </div>
             }
           >
-            {/* FIX: Use render prop to close menu on action */}
             {({ close }) => (
               <div className={isCollapsed ? "w-56" : ""}>
                 <Link
@@ -337,6 +341,7 @@ const MainLayout = () => {
             )}
           </Dropdown>
         </div>
+
       </aside>
 
       {/* MOBILE HEADER */}
@@ -352,6 +357,7 @@ const MainLayout = () => {
             <span className="ml-3 font-bold text-lg tracking-tight">
               MASCD MIS
             </span>
+            
           </div>
         </header>
 

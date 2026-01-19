@@ -1,9 +1,8 @@
 import express from 'express';
 import passport from 'passport';
 import cors from 'cors'; 
-import helmet from 'helmet'; // NEW IMPORT
+import helmet from 'helmet';
 
-// Import Shared Config
 import { corsOptions } from './config/cors.js'; 
 
 import { sessionMiddleware } from './config/session.js'; 

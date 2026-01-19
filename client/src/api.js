@@ -1,4 +1,3 @@
-// src/api.js
 import axios from "axios";
 import { API_BASE_URL } from "./config";
 
@@ -17,6 +16,8 @@ axiosInstance.interceptors.request.use(
 axiosInstance.interceptors.response.use(
   (response) => response.data,
   (error) => {
+    if (axios.isCancel(error)) return Promise.reject(error);
+
     if (!error.response) {
       if (error.code === "ECONNABORTED")
         return Promise.reject(new Error("Request timed out. Server is busy."));
@@ -47,6 +48,10 @@ const api = {
     }
   },
   logout: async () => await axiosInstance.post("/auth/logout"),
+
+  // --- SETUP API ---
+  getSetupStatus: async () => await axiosInstance.get("/auth/setup-status"),
+  setupAdmin: async (data) => await axiosInstance.post("/auth/setup", data),
 
   updateUser: async (id, data) => await axiosInstance.put(`/users/${id}`, data),
   deleteUser: async (id) => await axiosInstance.delete(`/users/${id}`),

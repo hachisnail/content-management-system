@@ -15,10 +15,47 @@ import {
   Loader2,
   ArrowUpDown,
   MoreVertical,
+  // --- NEW ICONS FOR FILE SYSTEM ---
+  FileText,
+  Image as ImageIcon,
+  Download,
+  Trash2,
+  Paperclip,
+  UploadCloud,
+  File,
+  ExternalLink
 } from "lucide-react";
 import api from "../api";
+import { useFileUpload } from "../hooks/useFileUpload"; // Ensure this path matches your structure
+import { useConfig } from "../context/ConfigContext";
 
-// --- 1. DROPDOWN (Updated with Close Handler) ---
+export const ResourceIcon = ({ type, className = "w-5 h-5" }) => {
+  switch (type) {
+    case 'users': return <User className={className} />;
+    case 'files': return <FileText className={className} />;
+    case 'test_items': return <Box className={className} />;
+    default: return <Box className={className} />;
+  }
+};
+
+export const PageHeader = ({ title, description, icon: Icon, actions }) => {
+  return (
+    <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 border-b border-zinc-200 pb-6">
+      <div>
+        <h1 className="text-2xl font-bold tracking-tight text-zinc-900 flex items-center gap-3">
+          {Icon && <Icon className="text-indigo-600" size={24} />}
+          {title}
+        </h1>
+        {description && (
+          <p className="text-zinc-500 text-sm mt-1">{description}</p>
+        )}
+      </div>
+      {actions && <div className="flex items-center gap-2">{actions}</div>}
+    </div>
+  );
+};
+
+// --- 1. DROPDOWN (Existing) ---
 export const Dropdown = ({
   trigger,
   children,
@@ -128,7 +165,6 @@ export const Dropdown = ({
             onClick={(e) => e.stopPropagation()}
           >
             <div className="py-1">
-              {/* FIX: Support render props to allow children to close the menu */}
               {typeof children === "function"
                 ? children({ close: () => setIsOpen(false) })
                 : children}
@@ -149,7 +185,6 @@ export const Checkbox = ({ checked, onChange, disabled }) => (
     className="w-4 h-4 rounded border-zinc-300 text-black focus:ring-black transition-colors cursor-pointer disabled:opacity-50"
   />
 );
-
 
 export const DataTable = ({
   columns,
@@ -177,7 +212,6 @@ export const DataTable = ({
     }
   }, [data]);
 
-
   const activeData = useMemo(() => {
     if (data && data.length > 0) return data;
     if (isLoading && cachedData.length > 0) return cachedData;
@@ -195,7 +229,7 @@ export const DataTable = ({
   const totalItems = serverSidePagination
     ? serverSidePagination.totalItems
     : activeData.length;
-    
+
   const totalPages = Math.max(1, Math.ceil(totalItems / itemsPerPage));
 
   const [isJumping, setIsJumping] = useState(false);
@@ -290,7 +324,6 @@ export const DataTable = ({
 
   const isOnlyOnePage = totalPages <= 1;
 
-
   const showFullLoader = isLoading && (!activeData || activeData.length === 0);
 
   if (showFullLoader) {
@@ -314,7 +347,6 @@ export const DataTable = ({
         isLoading ? "opacity-60 pointer-events-none" : ""
       }`}
     >
-      
       {selectedIds.size > 0 && bulkActionSlot && (
         <div className="absolute top-0 left-0 right-0 z-20 bg-zinc-900 text-white p-3 flex items-center justify-between animate-in slide-in-from-top-2 duration-200">
           <div className="flex items-center gap-4 px-2">
@@ -529,7 +561,6 @@ export const DataTable = ({
     </div>
   );
 };
-
 
 // --- CARDS & BUTTONS ---
 export const Card = ({ children, className = "", title, action, footer }) => (
@@ -940,6 +971,239 @@ export const Avatar = ({ user, size = "md", className = "" }) => {
           {getInitials()}
         </div>
       )}
+    </div>
+  );
+};
+
+// --- NEW COMPONENTS FOR FILE SYSTEM ---
+
+export const FileCard = ({ file, onDelete }) => {
+  const isImage = file.mimeType?.startsWith("image/");
+  // Assuming your API is at /api, adjust if needed
+  const fileUrl = `/api/files/${file.id}`; 
+
+  return (
+    <div className="group relative bg-white border border-zinc-200 rounded-lg overflow-hidden hover:shadow-md transition-all hover:border-zinc-300">
+      <div className="aspect-[4/3] bg-zinc-100 relative overflow-hidden flex items-center justify-center">
+        {isImage ? (
+          <img
+            src={fileUrl}
+            alt={file.originalName}
+            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+            loading="lazy"
+          />
+        ) : (
+          <div className="text-zinc-400">
+            <FileText size={48} strokeWidth={1} />
+          </div>
+        )}
+
+        {/* ACTIONS OVERLAY */}
+        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2 backdrop-blur-[1px]">
+          <a
+            href={fileUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="p-2 bg-white rounded-full text-zinc-900 hover:bg-zinc-100 transition-colors shadow-lg"
+            title="Download / View"
+          >
+            {isImage ? <ExternalLink size={16} /> : <Download size={16} />}
+          </a>
+          
+          {onDelete && (
+            <button
+              onClick={(e) => { 
+                e.preventDefault(); 
+                e.stopPropagation(); 
+                onDelete(file); 
+              }}
+              className="p-2 bg-white rounded-full text-red-600 hover:bg-red-50 transition-colors shadow-lg"
+              title="Remove File"
+            >
+              <Trash2 size={16} />
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="p-3">
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-zinc-900 truncate" title={file.originalName}>
+              {file.originalName}
+            </p>
+            <p className="text-xs text-zinc-500 mt-0.5">
+              {(file.size / 1024).toFixed(0)} KB • {new Date(file.createdAt).toLocaleDateString()}
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export const CategorizedFileViewer = ({ files = [], className = "", onDelete }) => {
+  if (!files || (Array.isArray(files) && files.length === 0)) {
+    return (
+      <div className="text-center py-12 border-2 border-dashed border-zinc-200 rounded-xl bg-zinc-50/50">
+        <p className="text-zinc-400 text-sm">No files attached yet.</p>
+      </div>
+    );
+  }
+
+  // Handle both array input and pre-grouped object input
+  let grouped = {};
+  if (Array.isArray(files)) {
+    grouped = { general: files };
+  } else {
+    grouped = files;
+  }
+
+  const categories = Object.keys(grouped).filter(cat => grouped[cat] && grouped[cat].length > 0);
+
+  if (categories.length === 0) {
+    return (
+      <div className="text-center py-12 border-2 border-dashed border-zinc-200 rounded-xl bg-zinc-50/50">
+        <p className="text-zinc-400 text-sm">No files attached yet.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className={`space-y-8 ${className}`}>
+      {categories.map((cat) => (
+        <div key={cat}>
+          <h5 className="text-xs font-bold text-zinc-500 uppercase tracking-wider mb-3 pl-1">
+            {cat.replace(/_/g, " ")} <span className="text-zinc-300 font-normal ml-1">({grouped[cat].length})</span>
+          </h5>
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+            {grouped[cat].map((file) => (
+              <FileCard 
+                key={file.id} 
+                file={file} 
+                onDelete={onDelete} 
+              />
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+};
+
+export const FileUploadWidget = ({
+  relatedType,
+  relatedId,
+  onSuccess,
+  className = "",
+}) => {
+  const { upload, uploading, error } = useFileUpload();
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [category, setCategory] = useState("general");
+
+  // 1. Get Limits
+  const { FILE_LIMITS } = useConfig();
+
+  // 2. Determine Max Size based on the 'relatedType' of this widget instance
+  const maxSize = useMemo(() => {
+    if (!FILE_LIMITS) return 25 * 1024 * 1024; // Safe default 25MB
+
+    // Specific Limit? (e.g. 'audit_logs')
+    if (FILE_LIMITS[relatedType]) return FILE_LIMITS[relatedType];
+
+    // Default Document Limit
+    return FILE_LIMITS.DOCUMENTS || 20 * 1024 * 1024;
+  }, [FILE_LIMITS, relatedType]);
+
+  const CATEGORIES = [
+    { value: "general", label: "General" },
+    { value: "contracts", label: "Contracts & Legal" },
+    { value: "invoices", label: "Invoices & Receipts" },
+    { value: "gallery", label: "Gallery Images" },
+    { value: "reports", label: "Reports" },
+  ];
+
+  const handleFileChange = (e) => {
+    if (e.target.files && e.target.files[0]) {
+      setSelectedFile(e.target.files[0]);
+    }
+  };
+
+  const handleUpload = async () => {
+    if (!selectedFile) return;
+
+    try {
+      await upload(
+        selectedFile,
+        {
+          relatedType,
+          relatedId,
+          category,
+        },
+        {
+          maxSize: maxSize, // <--- Pass the calculated limit
+        }
+      );
+
+      setSelectedFile(null);
+      if (onSuccess) onSuccess();
+    } catch (err) {
+      // Error handled by hook
+    }
+  };
+
+  // Helper text for the UI
+  const limitLabel = (maxSize / (1024 * 1024)).toFixed(0);
+
+  return (
+    <div
+      className={`bg-zinc-50 border border-zinc-200 rounded-lg p-4 ${className}`}
+    >
+      <h4 className="text-sm font-semibold text-zinc-900 mb-3 flex items-center gap-2">
+        <UploadCloud size={16} /> Upload Attachment
+      </h4>
+
+      {error && (
+        <Alert
+          type="error"
+          message={error}
+          onClose={() => {}}
+          className="mb-3"
+        />
+      )}
+
+      <div className="flex flex-col sm:flex-row gap-3 items-end">
+        <div className="flex-1 w-full">
+          <label className="block text-xs font-bold uppercase text-zinc-500 mb-1">
+            File{" "}
+            <span className="text-zinc-400 font-normal normal-case">
+              (Max {limitLabel}MB)
+            </span>
+          </label>
+          <input
+            type="file"
+            onChange={handleFileChange}
+            className="block w-full text-sm text-zinc-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"
+          />
+        </div>
+
+        <div className="w-full sm:w-48">
+          <Select
+            label="Category"
+            options={CATEGORIES}
+            value={category}
+            onChange={(e) => setCategory(e.target.value)}
+          />
+        </div>
+
+        <Button
+          onClick={handleUpload}
+          disabled={!selectedFile || uploading}
+          isLoading={uploading}
+        >
+          Upload
+        </Button>
+      </div>
     </div>
   );
 };

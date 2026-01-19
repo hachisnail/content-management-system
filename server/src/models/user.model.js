@@ -101,6 +101,7 @@ const defineUserModel = (sequelize) => {
     },
     {
       timestamps: true,
+      paranoid: true,
       tableName: 'users',
       indexes: [
         {

@@ -1,9 +1,11 @@
 {
   "private": true,
   "scripts": {
+    "test" : "jest",
     "dev": "concurrently \"npm run dev --prefix client\" \"npm run dev --prefix server\"",
     "build": "npm run build --prefix client",
-    "start": "npm run start --prefix server"
+    "start": "npm run start --prefix server",
+    "bump": "node scripts/bump-version.js"
   },
   "dependencies": {
     "concurrently": "^9.2.1"

@@ -1,136 +1,205 @@
-import React, { useState, useRef } from 'react';
-import api from '../../../../api';
-import { useAuth } from '../../../../context/AuthContext';
-import { useFileUpload } from '../../../../hooks/useFileUpload';
-import { 
-  Card, 
-  Badge, 
-  Alert 
-} from '../../../../components/UI';
-import { 
-  User, 
-  Camera, 
-  ShieldCheck, 
-  Loader2 
-} from 'lucide-react';
+import { useRef, useState, useCallback } from "react";
+import Cropper from "react-easy-crop"; 
+import { Camera, Loader2, UploadCloud, ZoomIn, ZoomOut } from "lucide-react";
+import { useAuth } from "../../../../context/AuthContext";
+import { useConfig } from "../../../../context/ConfigContext";
+import { useFileUpload } from "../../../../hooks/useFileUpload";
+import { Avatar, Button, Alert, Modal } from "../../../../components/UI";
+import { getCroppedImg, readFile } from "../../../../utils/cropUtils"; 
+import api from "../../../../api"; // Import API to resolve URLs
 
 const ProfileAvatar = () => {
-  const { user, login } = useAuth();
+  const { user, login } = useAuth(); // <--- Get login to update session
+  const { FILE_LIMITS } = useConfig();
+  const { upload, uploading, error: uploadError } = useFileUpload();
+  
   const fileInputRef = useRef(null);
+  
+  // -- State for Cropping --
+  const [imgSrc, setImgSrc] = useState(null); 
+  const [crop, setCrop] = useState({ x: 0, y: 0 });
+  const [zoom, setZoom] = useState(1);
+  const [croppedAreaPixels, setCroppedAreaPixels] = useState(null);
+  const [validationError, setValidationError] = useState(null);
 
-  const { upload, uploading } = useFileUpload();
+  const limitBytes = FILE_LIMITS?.users || 5 * 1024 * 1024;
+  const limitLabel = (limitBytes / (1024 * 1024)).toFixed(0);
 
-  const [error, setError] = useState(null);
-  const [previewAvatar, setPreviewAvatar] = useState(null);
-
-  const handleAvatarUpload = async (e) => {
-    const file = e.target.files[0];
+  const handleFileSelect = async (e) => {
+    const file = e.target.files?.[0];
     if (!file) return;
 
-    // 2. Pre-upload Validation
-    if (file.size > 5 * 1024 * 1024) {
-      setError('File size too large. Max 5MB allowed.');
+    setValidationError(null);
+
+    if (!file.type.startsWith("image/")) {
+      setValidationError("Invalid file type. Please select an image (JPG, PNG).");
       return;
     }
 
-    setError(null);
+    if (file.size > limitBytes * 2) {
+       setValidationError(`Image is too large to process. Max ${limitLabel * 2}MB allowed.`);
+       return;
+    }
 
     try {
-      // 3. Use the hook to handle the upload logic
-      const response = await upload(file, {
-        relatedType: "users",
-        relatedId: user.id,
-        isPublic: "true"
-      });
-
-      const newFile = response.data;
-
-      // 4. Handle Success
-      if (newFile && newFile.id) {
-        const newUrl = api.getFileUrl(newFile.id);
-        setPreviewAvatar(newUrl);
-        // Update global auth context
-        login({ ...user, profilePicture: newFile });
-      }
+      const imageDataUrl = await readFile(file);
+      setImgSrc(imageDataUrl);
     } catch (err) {
-      console.error(err);
-      // The hook throws the error so we can catch it here for UI display
-      setError(err.message || 'Failed to upload image. Please try again.');
+      setValidationError("Failed to read image file.");
+    } finally {
+      e.target.value = null; 
     }
   };
 
-  // Determine Image Source
-  const serverAvatarUrl = user?.profilePicture?.id
-    ? api.getFileUrl(user.profilePicture.id)
-    : null;
-  
-  const displayAvatar = previewAvatar || (serverAvatarUrl ? `${serverAvatarUrl}?t=${Date.now()}` : null);
+  const onCropComplete = useCallback((croppedArea, croppedAreaPixels) => {
+    setCroppedAreaPixels(croppedAreaPixels);
+  }, []);
+
+  const handleCropAndUpload = async () => {
+    if (!imgSrc || !croppedAreaPixels) return;
+
+    try {
+      const croppedBlob = await getCroppedImg(imgSrc, croppedAreaPixels);
+      const fileToUpload = new File([croppedBlob], "profile_avatar.jpg", {
+        type: "image/jpeg",
+      });
+
+      setImgSrc(null); 
+      
+      // Perform Upload
+      const response = await upload(fileToUpload, {
+        relatedType: 'users',
+        relatedId: user.id,
+        category: 'profile_picture', 
+        isPublic: true 
+      }, {
+        maxSize: limitBytes 
+      });
+
+      // --- FIX: OPTIMISTIC UPDATE ---
+      // If upload succeeded, immediately update the local user context
+      if (response && response.data) {
+        login({ ...user, profilePicture: response.data });
+      }
+
+    } catch (err) {
+      console.error("Crop/Upload failed", err);
+      if (!uploadError) setValidationError("Failed to process image.");
+    }
+  };
 
   return (
-    <Card className="text-center p-6 h-full">
-      {error && (
-        <div className="mb-4">
-          <Alert type="error" message={error} onClose={() => setError(null)} />
-        </div>
-      )}
+    <>
+      <div className="bg-white border border-zinc-200 rounded-lg shadow-sm p-6 flex flex-col items-center text-center">
+        <div className="relative group mb-4">
+          {/* Avatar Component will now receive the NEW user object with the new picture */}
+          <Avatar
+            user={user}
+            size="xl"
+            className={`ring-4 ring-zinc-50 transition-all ${
+              uploading ? "opacity-50 blur-sm" : ""
+            }`}
+          />
 
-      <div className="relative inline-block group">
-        <div className="w-32 h-32 mx-auto rounded-full bg-zinc-100 border-4 border-white shadow-lg overflow-hidden flex items-center justify-center relative">
-          {/* Use the hook's uploading state */}
-          {uploading ? (
-            <Loader2 className="animate-spin text-indigo-600" size={32} />
-          ) : displayAvatar ? (
-            <img
-              src={displayAvatar}
-              alt="Profile"
-              className="w-full h-full object-cover"
-            />
-          ) : (
-            <User size={48} className="text-zinc-300" />
+          {uploading && (
+            <div className="absolute inset-0 flex items-center justify-center z-10">
+              <Loader2 className="animate-spin text-zinc-900 w-8 h-8" />
+            </div>
           )}
-          
-          {/* Hover Overlay */}
-          <div
-            onClick={() => !uploading && fileInputRef.current.click()}
-            className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
-          >
-            <Camera className="text-white" size={24} />
-          </div>
-        </div>
-        
-        <input
-          type="file"
-          ref={fileInputRef}
-          onChange={handleAvatarUpload}
-          className="hidden"
-          accept="image/png, image/jpeg"
-        />
-      </div>
 
-      <div className="mt-4">
-        <h3 className="font-bold text-lg text-zinc-900">
+          {!uploading && (
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="absolute inset-0 flex flex-col items-center justify-center bg-black/40 text-white opacity-0 group-hover:opacity-100 transition-opacity rounded-full cursor-pointer backdrop-blur-sm"
+            >
+              <Camera size={24} />
+              <span className="text-xs font-medium mt-1">Change</span>
+            </button>
+          )}
+        </div>
+
+        <h3 className="text-lg font-bold text-zinc-900 truncate max-w-full">
           {user?.firstName} {user?.lastName}
         </h3>
-        <p className="text-sm text-zinc-500 mb-1">@{user?.username}</p>
-        <p className="text-xs text-zinc-400">{user?.email}</p>
+        <p className="text-zinc-500 text-sm mb-4 capitalize">
+          {Array.isArray(user?.role) ? user.role.join(", ") : user?.role}
+        </p>
+
+        {(uploadError || validationError) && (
+          <Alert
+            type="error"
+            message={uploadError || validationError}
+            className="mb-4 text-left w-full text-xs"
+          />
+        )}
+
+        <div className="w-full">
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleFileSelect}
+            className="hidden"
+            accept="image/jpeg,image/png,image/webp"
+          />
+          <Button
+            variant="secondary"
+            className="w-full"
+            icon={UploadCloud}
+            disabled={uploading}
+            onClick={() => fileInputRef.current?.click()}
+          >
+            {uploading ? "Uploading..." : "Upload New Picture"}
+          </Button>
+          <p className="text-[10px] text-zinc-400 mt-2">
+            Recommended: Square JPG/PNG, max {limitLabel}MB.
+          </p>
+        </div>
       </div>
 
-      <div className="mt-4 flex justify-center flex-wrap gap-2">
-        {Array.isArray(user?.role) ? (
-          user.role.map((r, i) => (
-            <Badge key={i} variant="neutral" className="px-3 py-1">
-              <ShieldCheck size={12} className="mr-1.5" />
-              {r.replace('_', ' ')}
-            </Badge>
-          ))
-        ) : (
-          <Badge variant="neutral" className="px-3 py-1">
-            <ShieldCheck size={12} className="mr-1.5" />
-            {user?.role}
-          </Badge>
-        )}
-      </div>
-    </Card>
+      <Modal
+        isOpen={!!imgSrc}
+        onClose={() => setImgSrc(null)}
+        title="Adjust Profile Picture"
+        size="md"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setImgSrc(null)}>Cancel</Button>
+            <Button onClick={handleCropAndUpload} disabled={uploading}>
+              {uploading ? <Loader2 className="animate-spin w-4 h-4" /> : "Save & Upload"}
+            </Button>
+          </>
+        }
+      >
+        <div className="flex flex-col gap-4">
+          <div className="relative w-full h-[300px] bg-zinc-900 rounded-lg overflow-hidden">
+            <Cropper
+              image={imgSrc}
+              crop={crop}
+              zoom={zoom}
+              aspect={1}
+              onCropChange={setCrop}
+              onZoomChange={setZoom}
+              onCropComplete={onCropComplete}
+            />
+          </div>
+          
+          <div className="flex items-center gap-2 px-2">
+            <ZoomOut size={16} className="text-zinc-400" />
+            <input
+              type="range"
+              value={zoom}
+              min={1}
+              max={3}
+              step={0.1}
+              aria-labelledby="Zoom"
+              onChange={(e) => setZoom(e.target.value)}
+              className="w-full h-1 bg-zinc-200 rounded-lg appearance-none cursor-pointer accent-indigo-600"
+            />
+            <ZoomIn size={16} className="text-zinc-400" />
+          </div>
+        </div>
+      </Modal>
+    </>
   );
 };
 

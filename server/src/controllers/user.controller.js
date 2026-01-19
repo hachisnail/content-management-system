@@ -91,12 +91,21 @@ export const getAllUsers = async (req, res, next) => {
 
     const safeUsers = rows.map((u) => {
       const user = u.toJSON();
+      
+      // 1. Online Status Check
       if (user.isOnline && user.last_active) {
         const lastActiveTime = new Date(user.last_active).getTime();
         if (now - lastActiveTime > TIMEOUT) {
           user.isOnline = false;
         }
       }
+
+      // 2. FIX: Flatten profilePicture Array -> Object
+      // The frontend expects user.profilePicture to be a single object, not an array.
+      if (Array.isArray(user.profilePicture)) {
+        user.profilePicture = user.profilePicture.length > 0 ? user.profilePicture[0] : null;
+      }
+
       return user;
     });
 
@@ -120,12 +129,17 @@ export const getAllUsers = async (req, res, next) => {
 
 export const getUserById = async (req, res, next) => {
   try {
-    const user = await UserService.findById(req.params.id);
-    if (!user) {
-      return res
-        .status(404)
-        .json({ success: false, message: 'User not found' });
+    const userInstance = await UserService.findById(req.params.id);
+    if (!userInstance) {
+      return res.status(404).json({ success: false, message: 'User not found' });
     }
+
+    // FIX: Handle Single User Fetch too
+    const user = userInstance.toJSON();
+    if (Array.isArray(user.profilePicture)) {
+        user.profilePicture = user.profilePicture.length > 0 ? user.profilePicture[0] : null;
+    }
+
     res.json(user);
   } catch (error) {
     next(error);

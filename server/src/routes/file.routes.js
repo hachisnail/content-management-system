@@ -6,14 +6,13 @@ import rateLimit from 'express-rate-limit';
 
 const router = express.Router();
 
-// SAFETY: Limit uploads to 10 per 15 mins per IP
 const uploadLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, 
   max: 10, 
   message: { success: false, message: 'Too many uploads. Please try again later.' }
 });
 
-// 1. Upload (Protected)
+// 1. Upload
 router.post(
   '/upload', 
   isAuthenticated, 
@@ -22,7 +21,10 @@ router.post(
   FileController.uploadFile
 );
 
-// 2. View (Logic handles permissions)
+// 2. View
 router.get('/:id', FileController.viewFile);
+
+// 3. Delete (New)
+router.delete('/:id', isAuthenticated, FileController.deleteFile);
 
 export { router as fileRoutes };

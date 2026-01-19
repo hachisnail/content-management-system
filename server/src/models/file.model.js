@@ -12,7 +12,7 @@ const defineFileModel = (sequelize) => {
     originalName: { type: DataTypes.STRING, allowNull: false },
     mimeType: { type: DataTypes.STRING },
     size: { type: DataTypes.INTEGER },
-    path: { type: DataTypes.STRING, allowNull: false },
+    path: { type: DataTypes.STRING, allowNull: false }, // Physical location
 
     isPublic: { 
       type: DataTypes.BOOLEAN, 
@@ -20,27 +20,13 @@ const defineFileModel = (sequelize) => {
     },
     allowedRoles: {
       type: DataTypes.JSON, 
-      allowNull: true,
       defaultValue: [] 
     },
-
-    relatedType: { 
-      type: DataTypes.STRING, 
-      allowNull: true,
-      collate: 'utf8mb4_general_ci' 
-    },
-    
-    relatedId: { 
-      type: DataTypes.STRING, 
-      allowNull: true 
-    },
-    
     uploadedBy: { type: DataTypes.STRING }, 
-  }, {
+}, {
     timestamps: true,
+    paranoid: true, // <--- ENABLES SOFT DELETE (Adds deletedAt column)
     tableName: 'files',
-    charset: 'utf8mb4',
-    collate: 'utf8mb4_general_ci'
   });
 
   return File;

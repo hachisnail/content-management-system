@@ -2,7 +2,7 @@ import passport from 'passport';
 import { handleNewLogin } from '../services/session.service.js';
 import { logOperation } from '../services/logger.js';
 import { db } from '../models/index.js';
-
+import * as UserService from '../services/user.service.js'; // Import User Service
 
 export const login = (req, res, next) => {
   passport.authenticate('local', (err, user, info) => {
@@ -13,10 +13,8 @@ export const login = (req, res, next) => {
       if (err) return next(err);
 
       try {
-        // This function updates the DB (last_login), which triggers the NEW User Hook
         await handleNewLogin(user);
 
-        // This function creates a DB entry, which triggers the Audit Log Hook
         await logOperation({
           operation: 'LOGIN',
           description: `User ${user.email} logged in.`,
@@ -55,8 +53,6 @@ export const logout = (req, res, next) => {
       if (fullUser) {
         fullUser.isOnline = false;
         fullUser.socketId = [];
-        
-        // Saving triggers the NEW User Hook (emitUserUpdate)
         await fullUser.save(); 
       }
 
@@ -67,8 +63,6 @@ export const logout = (req, res, next) => {
           afterState: { id: userId, email: userEmail },
           initiator: userEmail, 
       });
-
-      // REMOVED: Manual io.emit('users_updated')
 
       req.session.destroy(() => {
         res.clearCookie('user_sid');
@@ -90,5 +84,38 @@ export const checkAuth = (req, res) => {
     res.json({ isAuthenticated: true, user: safeUser });
   } else {
     res.status(401).json({ isAuthenticated: false });
+  }
+};
+
+// --- SETUP ROUTES ---
+export const getSetupStatus = async (req, res, next) => {
+  try {
+    const isSetup = await UserService.isSystemSetup();
+    // If system is setup (users exist), then setup is NOT required.
+    // If count == 0, isSetupRequired = true
+    res.json({ isSetupRequired: !isSetup });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const setupAdmin = async (req, res, next) => {
+  try {
+    const { email, password, firstName, lastName } = req.body;
+    
+    // Create the admin (Service throws error if users already exist)
+    const user = await UserService.createFirstAdmin({ email, password, firstName, lastName });
+
+    res.json({
+      success: true,
+      message: 'System Setup Complete. You may now login.',
+      user
+    });
+  } catch (error) {
+    // Return 403 Forbidden if setup is blocked
+    if (error.message.includes('forbidden')) {
+      return res.status(403).json({ success: false, message: error.message });
+    }
+    next(error);
   }
 };

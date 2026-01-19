@@ -1,0 +1,7 @@
+# Node / JS defaults
+* text=auto
+
+*.js text
+*.jsx text
+*.json text
+*.md text

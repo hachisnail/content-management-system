@@ -3,12 +3,22 @@ import bcrypt from 'bcrypt';
 import crypto from 'crypto';
 import { sendMail } from './mailer.js';
 import { logOperation } from './logger.js';
+import * as FileService from './file.service.js';
 import {
   getAllowedRoles,
   ROLE_DEFINITIONS,
   PERMISSIONS,
+  ROLE_HIERARCHY, // <--- Import Hierarchy
 } from '../config/permissions.js';
 import { buildQueryOptions } from '../utils/queryBuilder.js';
+import { Transaction } from 'sequelize';
+
+// --- HELPER: Calculate Power Level ---
+const getRolePower = (roles) => {
+  const roleArray = Array.isArray(roles) ? roles : [roles];
+  // Returns the highest power level the user possesses
+  return Math.max(...roleArray.map((r) => ROLE_HIERARCHY[r] || 0));
+};
 
 const checkPerm = (userRoles, permission) => {
   if (!userRoles) return false;
@@ -22,17 +32,50 @@ const checkPerm = (userRoles, permission) => {
 const sanitizeUser = (user) => {
   if (!user) return null;
   const userObj = typeof user.toJSON === 'function' ? user.toJSON() : user;
-  
-  const { 
-    password, 
-    registrationToken, 
-    socketId, 
-    resetPasswordToken, 
-    ...safeData 
+  const {
+    password,
+    registrationToken,
+    socketId,
+    resetPasswordToken,
+    ...safeData
   } = userObj;
-  
   return safeData;
 };
+
+export const isSystemSetup = async () => {
+  const count = await db.User.count();
+  return count > 0;
+};
+
+export const createFirstAdmin = async ({ email, password, firstName, lastName }) => {
+  // FIX: Use a transaction to prevent race conditions during setup
+  return await db.sequelize.transaction({ isolationLevel: Transaction.ISOLATION_LEVELS.SERIALIZABLE }, async (t) => {
+    const count = await db.User.count({ transaction: t });
+    
+    if (count > 0) {
+      throw new Error('Setup Forbidden: System already has registered users.');
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    const user = await db.User.create({
+      email,
+      password: hashedPassword,
+      firstName,
+      lastName,
+      role: ['super_admin'],
+      status: 'active',
+      isOnline: false
+    }, { transaction: t });
+
+    // Move logging outside or keep it (logging usually doesn't need to be in the transaction unless strict)
+    // For safety, we can log after commit, but here is fine.
+    
+    return sanitizeUser(user);
+  });
+};
+
+
 
 export const updateUser = async (id, updateData, initiatorEmail) => {
   const user = await db.User.findByPk(id);
@@ -41,20 +84,33 @@ export const updateUser = async (id, updateData, initiatorEmail) => {
   const initiator = await db.User.findOne({ where: { email: initiatorEmail } });
   if (!initiator) throw new Error('Initiator not found');
 
-  // --- PERMISSION CHECKING ---
-  const iRoles = initiator.role;
+  const iRoles = initiator.role || [];
   const targetRoles = user.role || [];
+  const isSelf = user.id === initiator.id;
 
-  const isInitiatorSuper = iRoles.includes('super_admin');
-  const isTargetSuper = targetRoles.includes('super_admin');
+  // --- HIERARCHY CHECK ---
+  if (!isSelf) {
+    const initiatorPower = getRolePower(iRoles);
+    const targetPower = getRolePower(targetRoles);
 
-  // 1. SECURITY FIX: Prevent Admins from modifying Super Admins
-  if (isTargetSuper && !isInitiatorSuper) {
-    throw new Error('Access Denied: You cannot modify a Super Admin account.');
+    // 1. Prevent editing higher tiers (e.g. Admin editing Super Admin)
+    if (initiatorPower < targetPower) {
+      throw new Error(
+        'Access Denied: You cannot modify a user with higher authority.',
+      );
+    }
+
+    // 2. Prevent editing peers (e.g. Admin editing another Admin), unless you are Super Admin
+    const isInitiatorSuper = iRoles.includes('super_admin');
+    if (initiatorPower === targetPower && !isInitiatorSuper) {
+      throw new Error(
+        'Access Denied: You cannot modify a user with equal authority.',
+      );
+    }
   }
 
-  const isSelf = user.id === initiator.id;
-  const canManageUsers = checkPerm(iRoles, PERMISSIONS.MANAGE_USERS);
+  // --- PERMISSION CHECKS ---
+  const canUpdateGeneral = checkPerm(iRoles, PERMISSIONS.UPDATE_USERS);
   const canManageRoles = checkPerm(iRoles, PERMISSIONS.MANAGE_USER_ROLES);
   const canManageStatus = checkPerm(iRoles, PERMISSIONS.MANAGE_USER_STATUS);
 
@@ -67,96 +123,133 @@ export const updateUser = async (id, updateData, initiatorEmail) => {
   ];
   let allowedFields = [];
 
-  if (isSelf || canManageUsers) {
+  if (isSelf || canUpdateGeneral) {
     allowedFields = [...basicFields];
   }
 
   if (canManageRoles) allowedFields.push('role');
   if (canManageStatus) allowedFields.push('status');
 
-  if (isInitiatorSuper) {
+  // Super Admins can edit system fields
+  if (iRoles.includes('super_admin')) {
     allowedFields.push('email', 'username');
     allowedFields = [
       ...new Set([...allowedFields, ...basicFields, 'role', 'status']),
     ];
   }
 
+  // --- APPLY UPDATES ---
   const beforeState = user.toJSON();
   delete beforeState.password;
   delete beforeState.socketId;
 
   if (updateData.roles && !updateData.role) updateData.role = updateData.roles;
 
+  let hasChanges = false;
   allowedFields.forEach((field) => {
-    if (updateData[field] !== undefined) {
+    if (updateData[field] !== undefined && user[field] !== updateData[field]) {
       user[field] = updateData[field];
+      hasChanges = true;
     }
   });
 
+  // --- VALIDATE ROLE CHANGES ---
   if (user.changed('role')) {
     const rawRole = user.getDataValue('role');
     const roleArray = Array.isArray(rawRole) ? rawRole : [rawRole];
-    const validRoleList = getAllowedRoles();
 
+    // Safety: Ensure you aren't assigning a role HIGHER than your own
+    // (e.g. An Admin shouldn't be able to promote someone to Super Admin)
+    const newRolePower = getRolePower(roleArray);
+    const myPower = getRolePower(iRoles);
+    if (newRolePower > myPower) {
+      throw new Error(
+        'Access Denied: You cannot assign a role higher than your own.',
+      );
+    }
+
+    const validRoleList = getAllowedRoles();
     const invalidRoles = roleArray.filter((r) => !validRoleList.includes(r));
     if (invalidRoles.length > 0)
       throw new Error(`Invalid roles: ${invalidRoles.join(', ')}`);
-
     user.setDataValue('role', roleArray);
   }
 
-  user.last_active = new Date();
+  if (hasChanges || user.changed('role')) {
+    user.last_active = new Date();
+    await user.save();
 
-  await user.save();
-
-  await logOperation({
-    description: `User profile updated for ${user.email}`,
-    operation: 'UPDATE',
-    affectedResource: `user:${user.id}`,
-    beforeState,
-    afterState: sanitizeUser(user),
-    initiator: initiatorEmail,
-  });
+    await logOperation({
+      description: `User profile updated for ${user.email}`,
+      operation: 'UPDATE',
+      affectedResource: `user:${user.id}`,
+      beforeState,
+      afterState: sanitizeUser(user),
+      initiator: initiatorEmail,
+    });
+  }
 
   return findById(user.id);
 };
 
 export const deleteUser = async (id, initiatorEmail) => {
-  const user = await db.User.findByPk(id);
-  if (!user) throw new Error('User not found');
+  const transaction = await db.sequelize.transaction();
+  try {
+    const user = await db.User.findByPk(id, { transaction });
+    if (!user) throw new Error('User not found');
 
-  const initiator = await db.User.findOne({ where: { email: initiatorEmail } });
+    const initiator = await db.User.findOne({
+      where: { email: initiatorEmail },
+      transaction,
+    });
 
-  // --- SECURITY FIX: Hierarchy Check for Deletion ---
-  if (initiator) {
-    const iRoles = initiator.role || [];
-    const tRoles = user.role || [];
+    if (initiator) {
+      const iRoles = initiator.role || [];
+      const tRoles = user.role || [];
 
-    const isInitiatorSuper = iRoles.includes('super_admin');
-    const isTargetSuper = tRoles.includes('super_admin');
+      // --- HIERARCHY CHECK FOR DELETION ---
+      const initiatorPower = getRolePower(iRoles);
+      const targetPower = getRolePower(tRoles);
 
-    if (isTargetSuper && !isInitiatorSuper) {
-      throw new Error(
-        'Access Denied: You cannot delete a Super Admin account.',
-      );
+      if (initiatorPower < targetPower) {
+        throw new Error(
+          'Access Denied: You cannot delete a user with higher authority.',
+        );
+      }
+
+      // Prevent deleting peers (except Super Admin)
+      const isInitiatorSuper = iRoles.includes('super_admin');
+      if (initiatorPower === targetPower && !isInitiatorSuper) {
+        throw new Error(
+          'Access Denied: You cannot delete a user with equal authority.',
+        );
+      }
     }
+
+    const userEmail = user.email;
+
+    await FileService.deleteRelatedFiles(
+      { relatedType: 'users', relatedId: id },
+      transaction,
+    );
+
+    await user.destroy({ transaction });
+    await transaction.commit();
+
+    await logOperation({
+      description: `User/Invitation revoked for ${userEmail}`,
+      operation: 'DELETE',
+      affectedResource: `user:${id}`,
+      beforeState: sanitizeUser(user),
+      afterState: null,
+      initiator: initiatorEmail,
+    });
+
+    return true;
+  } catch (error) {
+    await transaction.rollback();
+    throw error;
   }
-
-  const userEmail = user.email;
-  const beforeState = user.toJSON();
-
-  await user.destroy();
-
-  await logOperation({
-    description: `User/Invitation revoked for ${userEmail}`,
-    operation: 'DELETE',
-    affectedResource: `user:${id}`,
-    beforeState: sanitizeUser(user),
-    afterState: null,
-    initiator: initiatorEmail,
-  });
-
-  return true;
 };
 
 export const findById = async (id) => {
@@ -166,7 +259,8 @@ export const findById = async (id) => {
       {
         model: db.File,
         as: 'profilePicture',
-        attributes: ['id', 'fileName', 'mimeType'],
+        attributes: ['id', 'fileName', 'mimeType', 'path'],
+        through: { attributes: [] },
       },
     ],
   });
@@ -186,8 +280,9 @@ export const findAll = async (queryParams = {}) => {
         {
           model: db.File,
           as: 'profilePicture',
-          attributes: ['id', 'fileName', 'relatedType'],
+          attributes: ['id', 'fileName', 'mimeType'],
           required: false,
+          through: { attributes: [] },
         },
       ],
     });
@@ -212,16 +307,25 @@ export const createUser = async ({
 
   const validRoleList = getAllowedRoles();
   const assignedRoles = Array.isArray(roles) ? roles : [roles];
-
   const invalidRoles = assignedRoles.filter((r) => !validRoleList.includes(r));
   if (invalidRoles.length > 0)
     throw new Error(`Invalid roles: ${invalidRoles.join(', ')}`);
 
+  // --- HIERARCHY CHECK (Creation) ---
+  // Ensure creator doesn't create a role higher than themselves
+  const initiator = await db.User.findOne({ where: { email: initiatorEmail } });
+  if (initiator) {
+    const myPower = getRolePower(initiator.role);
+    const newRolePower = getRolePower(assignedRoles);
+    if (newRolePower > myPower) {
+      throw new Error(
+        'Access Denied: You cannot create a user with a higher role than your own.',
+      );
+    }
+  }
+
   const registrationToken = crypto.randomBytes(32).toString('hex');
-  const EXPIRE_HOURS = 48;
-  const invitationExpiresAt = new Date(
-    Date.now() + EXPIRE_HOURS * 60 * 60 * 1000,
-  );
+  const invitationExpiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000);
 
   const newUser = await db.User.create({
     email,
@@ -244,7 +348,6 @@ export const createUser = async ({
   });
 
   const registrationLink = `http://localhost:5173/complete-registration?token=${registrationToken}`;
-
   await sendMail({
     to: email,
     subject: 'Action Required: Complete your MASCD Registration',
@@ -257,6 +360,7 @@ export const createUser = async ({
   return userJson;
 };
 
+// ... (completeRegistration and getInvitationTemplate remain unchanged)
 export const completeRegistration = async (
   token,
   { password, username, contactNumber, birthDay },
