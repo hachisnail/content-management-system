@@ -20,5 +20,3 @@
 ## v0.5.0
 - File management, RBAC fixes, and UI improvements
 
-=======
->>>>>>> 18912a67ffb7de70dcab3539dee342644a62bd12
