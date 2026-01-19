@@ -10,29 +10,38 @@ export const useFileUpload = () => {
 
   /**
    * @param {File} file - The browser File object
-   * @param {Object} metadata - { relatedType, relatedId, isPublic, ... }
+   * @param {Object} metadata - { relatedType, relatedId, isPublic, category, ... }
+   * @param {Object} options - { maxSize: number (in bytes) }
    */
-  const upload = async (file, metadata = {}) => {
+  const upload = async (file, metadata = {}, options = {}) => {
     if (!file) return;
     
     setUploading(true);
     setError(null);
 
     try {
+      // 1. CLIENT-SIDE VALIDATION
+      if (options.maxSize && file.size > options.maxSize) {
+        const limitMB = (options.maxSize / (1024 * 1024)).toFixed(0);
+        throw new Error(`File is too large. Maximum size is ${limitMB}MB.`);
+      }
+
+      // 2. Prepare Form Data
       const formData = new FormData();
 
-      // 1. Append Metadata FIRST (Critical for backend folder routing)
+      // Append Metadata FIRST (Critical for backend folder routing)
       Object.keys(metadata).forEach(key => {
         formData.append(key, metadata[key]);
       });
 
-      // 2. Append File LAST
+      // Append File LAST
       formData.append('file', file);
 
       const response = await api.uploadFile(formData);
       return response;
     } catch (err) {
       console.error("Upload failed:", err);
+      // Handle standard Error objects or strings
       setError(err.message || "Failed to upload file");
       throw err;
     } finally {

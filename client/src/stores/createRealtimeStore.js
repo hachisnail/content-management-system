@@ -1,12 +1,13 @@
 import { create } from "zustand";
 import api from "../api";
 import socket from "../socket";
+import axios from "axios";
 
-// FALLBACK CONFIG: How often to fetch when socket is dead
-const POLL_INTERVAL_MS = 10000; // 10 seconds
-// Base interval
+// Configuration
+const POLL_INTERVAL_MS = 10000;
+const DEBOUNCE_MS = 150;
 
-// Helper for Jitter (Random delay between 0 and 2000ms)
+// Helper: Random delay between 0 and 2000ms to prevent thundering herd
 const getJitter = () => Math.floor(Math.random() * 2000);
 
 export const createRealtimeStore = (resourceName) => {
@@ -15,12 +16,26 @@ export const createRealtimeStore = (resourceName) => {
     entities: new Map(),
     isSubscribed: false,
     subscriberCount: 0,
-    pollingInterval: null, // NEW: Track the poll timer
+    pollingInterval: null,
 
-    // --- ACTIONS (Fetch) ---
+    abortControllers: new Map(),
+    fetchDebounceTimeout: null,
+
+    // --- DATA FETCHING (With AbortController) ---
 
     fetchQuery: async (queryString, { silent = false } = {}) => {
+      // 1. Cancel previous pending request for this specific query
+      const activeControllers = new Map(get().abortControllers);
+      if (activeControllers.has(queryString)) {
+        activeControllers.get(queryString).abort();
+      }
+
+      const controller = new AbortController();
+      activeControllers.set(queryString, controller);
+      set({ abortControllers: activeControllers });
+
       const existing = get().queries.get(queryString) || {};
+
       if (!silent) {
         set((state) => ({
           queries: new Map(state.queries).set(queryString, {
@@ -29,17 +44,23 @@ export const createRealtimeStore = (resourceName) => {
           }),
         }));
       }
+
       try {
         const queryParams = JSON.parse(queryString);
+
         const response = await api.get(`/${resourceName}`, {
           params: queryParams,
+          signal: controller.signal,
         });
+
         const data = response?.data || response?.rows || response || [];
         const meta =
           response?.meta ||
           (response?.count !== undefined
             ? { totalItems: response.count }
             : { totalItems: data.length });
+
+        if (controller.signal.aborted) return;
 
         set((state) => ({
           queries: new Map(state.queries).set(queryString, {
@@ -50,6 +71,9 @@ export const createRealtimeStore = (resourceName) => {
           }),
         }));
       } catch (error) {
+        // Correctly ignore cancellations
+        if (axios.isCancel(error) || error.name === "CanceledError") return;
+
         set((state) => ({
           queries: new Map(state.queries).set(queryString, {
             ...existing,
@@ -57,11 +81,25 @@ export const createRealtimeStore = (resourceName) => {
             error: error.message,
           }),
         }));
+      } finally {
+        const currentControllers = new Map(get().abortControllers);
+        currentControllers.delete(queryString);
+        set({ abortControllers: currentControllers });
       }
     },
 
     fetchEntity: async (id, { silent = false } = {}) => {
       const idStr = String(id);
+      const activeControllers = new Map(get().abortControllers);
+
+      if (activeControllers.has(idStr)) {
+        activeControllers.get(idStr).abort();
+      }
+
+      const controller = new AbortController();
+      activeControllers.set(idStr, controller);
+      set({ abortControllers: activeControllers });
+
       const existing = get().entities.get(idStr) || {};
       if (!silent) {
         set((state) => ({
@@ -71,8 +109,13 @@ export const createRealtimeStore = (resourceName) => {
           }),
         }));
       }
+
       try {
-        const data = await api.get(`/${resourceName}/${idStr}`);
+        const data = await api.get(`/${resourceName}/${idStr}`, {
+          signal: controller.signal,
+        });
+        if (controller.signal.aborted) return;
+
         set((state) => ({
           entities: new Map(state.entities).set(idStr, {
             data,
@@ -81,6 +124,9 @@ export const createRealtimeStore = (resourceName) => {
           }),
         }));
       } catch (error) {
+        // FIX: Added check for "CanceledError" to properly ignore aborted requests
+        if (axios.isCancel(error) || error.name === "CanceledError") return;
+
         set((state) => ({
           entities: new Map(state.entities).set(idStr, {
             ...existing,
@@ -91,9 +137,20 @@ export const createRealtimeStore = (resourceName) => {
       }
     },
 
+    // --- DEBOUNCING ---
+    scheduleRefetch: () => {
+      const { fetchDebounceTimeout, refetchAllData } = get();
+      if (fetchDebounceTimeout) clearTimeout(fetchDebounceTimeout);
+
+      const timeout = setTimeout(() => {
+        refetchAllData();
+        set({ fetchDebounceTimeout: null });
+      }, DEBOUNCE_MS);
+
+      set({ fetchDebounceTimeout: timeout });
+    },
+
     refetchAllData: () => {
-      const mode = get().pollingInterval ? "Polling" : "Socket";
-      console.log(`[Store: ${resourceName}] [${mode}] Refetching data...`);
       get().queries.forEach((_value, key) =>
         get().fetchQuery(key, { silent: true })
       );
@@ -102,53 +159,28 @@ export const createRealtimeStore = (resourceName) => {
       );
     },
 
-    // --- SOCKET HANDLERS ---
-
-    handleCreated: (newItem) => {
-      console.log(
-        `%c[Store: ${resourceName}] Created`,
-        "color: #22C55E;",
-        newItem
-      );
-      get().queries.forEach((_value, key) =>
-        get().fetchQuery(key, { silent: true })
-      );
-    },
+    // --- SOCKET EVENT HANDLERS ---
+    handleCreated: () => get().scheduleRefetch(),
 
     handleUpdated: (updatedItem) => {
       const idStr = String(updatedItem.id);
-      console.log(
-        `%c[Store: ${resourceName}] Updated ID: ${idStr}`,
-        "color: #3B82F6;",
-        updatedItem
-      );
-
+      // Optimistic Update
       if (get().entities.has(idStr)) {
         set((state) => {
           const existing = state.entities.get(idStr) || {};
-          const updatedEntity = { ...existing.data, ...updatedItem };
           return {
             entities: new Map(state.entities).set(idStr, {
               ...existing,
-              data: updatedEntity,
+              data: { ...existing.data, ...updatedItem },
             }),
           };
         });
       }
-      get().queries.forEach((_value, key) =>
-        get().fetchQuery(key, { silent: true })
-      );
+      get().scheduleRefetch();
     },
 
     handleDeleted: (deletedItem) => {
-      const rawId = deletedItem.id || deletedItem;
-      const idStr = String(rawId);
-      console.log(
-        `%c[Store: ${resourceName}] Deleted ID: ${idStr}`,
-        "color: #EF4444;",
-        deletedItem
-      );
-
+      const idStr = String(deletedItem.id || deletedItem);
       if (get().entities.has(idStr)) {
         set((state) => {
           const newEntities = new Map(state.entities);
@@ -156,20 +188,19 @@ export const createRealtimeStore = (resourceName) => {
           return { entities: newEntities };
         });
       }
-      get().queries.forEach((_value, key) =>
-        get().fetchQuery(key, { silent: true })
-      );
+      get().scheduleRefetch();
     },
 
-    // --- CONNECTION STATE HANDLERS ---
-
+    // --- CONNECTION HANDLERS ---
     handleConnect: () => {
       console.log(
         `[Store: ${resourceName}] Socket Connected. Stopping Fallback Polling.`
       );
-      get().stopPolling(); // STOP POLLING
+      get().stopPolling();
 
-      socket.emitSafe("subscribe_resource", resourceName);
+      const emitFn = socket.emitSafe || socket.emit.bind(socket);
+      emitFn("subscribe_resource", resourceName);
+
       get().refetchAllData();
     },
 
@@ -177,27 +208,20 @@ export const createRealtimeStore = (resourceName) => {
       console.warn(
         `[Store: ${resourceName}] Socket Disconnected. Starting Fallback Polling...`
       );
-      get().startPolling(); // START POLLING
+      get().startPolling();
     },
 
-    // --- POLLING MECHANISM (The Fallback) ---
-
+    // --- POLLING MECHANISM (WITH JITTER) ---
     startPolling: () => {
       const { pollingInterval, refetchAllData } = get();
       if (pollingInterval) return;
 
-      // Fetch immediately
       refetchAllData();
-
-      // 1. ADD JITTER TO INTERVAL
-      // Instead of a fixed setInterval, we use a recursive setTimeout with jitter
-      // to prevent "Thundering Herd" problem.
 
       const scheduleNext = () => {
         const nextDelay = POLL_INTERVAL_MS + getJitter();
         const id = setTimeout(() => {
           refetchAllData();
-          // Schedule next run only after this one finishes (or triggers)
           scheduleNext();
         }, nextDelay);
 
@@ -210,28 +234,18 @@ export const createRealtimeStore = (resourceName) => {
     stopPolling: () => {
       const { pollingInterval } = get();
       if (pollingInterval) {
-        clearTimeout(pollingInterval); // Changed from clearInterval
-        set({ pollingInterval: null });
-      }
-    },
-
-    stopPolling: () => {
-      const { pollingInterval } = get();
-      if (pollingInterval) {
-        clearInterval(pollingInterval);
+        clearTimeout(pollingInterval);
         set({ pollingInterval: null });
       }
     },
 
     // --- SUBSCRIPTION MANAGER ---
-
     subscribe: () => {
-      const currentCount = get().subscriberCount;
-      set({ subscriberCount: currentCount + 1 });
+      const count = get().subscriberCount;
+      set({ subscriberCount: count + 1 });
 
-      if (currentCount === 0 && !get().isSubscribed) {
+      if (count === 0 && !get().isSubscribed) {
         console.log(`[Store: ${resourceName}] Initializing...`);
-
         const {
           handleCreated,
           handleUpdated,
@@ -241,22 +255,17 @@ export const createRealtimeStore = (resourceName) => {
           startPolling,
         } = get();
 
-        socket.on("connect", handleConnect);
-        socket.on("disconnect", handleDisconnect); // Listen for drops
         socket.on(`${resourceName}_created`, handleCreated);
         socket.on(`${resourceName}_updated`, handleUpdated);
         socket.on(`${resourceName}_deleted`, handleDeleted);
+        socket.on("connect", handleConnect);
+        socket.on("disconnect", handleDisconnect);
 
         if (socket.connected) {
-          socket.emitSafe("subscribe_resource", resourceName);
+          const emitFn = socket.emitSafe || socket.emit.bind(socket);
+          emitFn("subscribe_resource", resourceName);
         } else {
-          // If starting offline, enable polling immediately
-          console.log(
-            `[Store: ${resourceName}] Started offline. Enabling polling.`
-          );
           startPolling();
-          // Queue subscription for later
-          socket.emitSafe("subscribe_resource", resourceName);
         }
 
         set({ isSubscribed: true });
@@ -264,14 +273,12 @@ export const createRealtimeStore = (resourceName) => {
     },
 
     unsubscribe: () => {
-      const currentCount = get().subscriberCount;
-      if (currentCount <= 0) return;
+      const count = get().subscriberCount;
+      if (count <= 0) return;
+      set({ subscriberCount: count - 1 });
 
-      set({ subscriberCount: currentCount - 1 });
-
-      if (currentCount - 1 === 0) {
+      if (count - 1 === 0) {
         console.log(`[Store: ${resourceName}] Cleaning up...`);
-
         const {
           handleCreated,
           handleUpdated,
@@ -279,18 +286,22 @@ export const createRealtimeStore = (resourceName) => {
           handleConnect,
           handleDisconnect,
           stopPolling,
+          fetchDebounceTimeout,
         } = get();
 
-        stopPolling(); // CRITICAL: Stop the timer if user leaves page
+        stopPolling();
+        if (fetchDebounceTimeout) clearTimeout(fetchDebounceTimeout);
 
-        if (socket.connected) socket.emit("unsubscribe_resource", resourceName);
-
-        socket.off("connect", handleConnect);
-        socket.off("disconnect", handleDisconnect);
         socket.off(`${resourceName}_created`, handleCreated);
         socket.off(`${resourceName}_updated`, handleUpdated);
         socket.off(`${resourceName}_deleted`, handleDeleted);
+        socket.off("connect", handleConnect);
+        socket.off("disconnect", handleDisconnect);
 
+        if (socket.connected) {
+          const emitFn = socket.emitSafe || socket.emit.bind(socket);
+          emitFn("unsubscribe_resource", resourceName);
+        }
         set({ isSubscribed: false });
       }
     },

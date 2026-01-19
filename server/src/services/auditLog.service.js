@@ -26,8 +26,10 @@ export const findAll = async (queryParams = {}) => {
         include: [{
           model: db.File,
           as: 'profilePicture',
-          attributes: ['id', 'fileName', 'relatedType'],
-          required: false 
+          attributes: ['id', 'fileName', 'mimeType'],
+          required: false,
+          // FIX: Don't return the join table data
+          through: { attributes: [] } 
         }]
       }]
     });
@@ -39,19 +41,20 @@ export const findAll = async (queryParams = {}) => {
   }
 };
 
-// --- UPDATED: Fetch Single Log with Relations ---
 export const findById = async (id) => {
   return await db.AuditLog.findByPk(id, {
     include: [{
       model: db.User,
       as: 'user',
       attributes: ['id', 'email', 'firstName', 'lastName'],
-      required: false, // Keep log even if user deleted
+      required: false, 
       include: [{
         model: db.File,
         as: 'profilePicture',
-        attributes: ['id', 'fileName', 'relatedType'],
-        required: false
+        attributes: ['id', 'fileName', 'mimeType'],
+        required: false,
+        // FIX: Don't return the join table data
+        through: { attributes: [] }
       }]
     }]
   });

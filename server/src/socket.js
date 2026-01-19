@@ -7,30 +7,25 @@ import { config } from './config/env.js';
 import { corsOptions } from './config/cors.js';
 import { ROLE_DEFINITIONS, PERMISSIONS } from './config/permissions.js';
 
-
+// --- CONFIGURATION ---
 const ALLOWED_CHANNELS = [
   'donations',
   'users',
   'audit_logs',
   'inventory',
   'server_logs',
-  'reports'
+  'reports',
+  'test_items',
+  'admin/trash', // Added admin/trash
 ];
 
-// --- HELPER FUNCTIONS ---
-
-const formatArg = (arg) => {
-  if (arg instanceof Error) return `[ERROR: ${arg.message}] ${arg.stack}`;
-  if (typeof arg === 'object') {
-    try {
-      return JSON.stringify(arg);
-    } catch {
-      return '[Object]';
-    }
-  }
-  return arg;
+// Prevents database spamming on rapid page reloads
+const PRESENCE_OPTS = {
+  DEBOUNCE_MS: 2000, // Wait 2s before marking offline (handles refresh)
+  ACTIVITY_THROTTLE: 60000, // Only write last_active to DB once per minute
 };
 
+// --- HELPER FUNCTIONS ---
 const logInfo = (message, ...args) => {
   if (config.app.env !== 'production')
     console.log(`[Socket] ${message}`, ...args);
@@ -39,77 +34,105 @@ const logInfo = (message, ...args) => {
     if (io)
       io.to('server_logs').emit('server_log', {
         type: 'info',
-        message: args.length
-          ? `${message} ${args.map(formatArg).join(' ')}`
-          : message,
-        timestamp: new Date(),
-      });
-  } catch (e) {}
-};
-
-const logError = (message, ...args) => {
-  console.error(`[Socket ERROR] ${message}`, ...args);
-  try {
-    const io = getIO();
-    if (io)
-      io.to('server_logs').emit('server_log', {
-        type: 'error',
-        message: args.length
-          ? `${message} ${args.map(formatArg).join(' ')}`
-          : message,
+        message: `${message}`,
         timestamp: new Date(),
       });
   } catch (e) {}
 };
 
 // --- PERMISSION LOGIC ---
-
 const hasPermission = (user, requiredPermission) => {
   if (!user || !user.role) return false;
-  const userRoles = Array.isArray(user.role) ? user.role : [user.role];
 
-  // 1. CRITICAL: Super Admin Bypass (Fixes your access denied issue)
+  let userRoles = user.role;
+  // Robust parsing handling
+  if (typeof userRoles === 'string') {
+    try {
+      userRoles = JSON.parse(userRoles);
+    } catch {
+      userRoles = [userRoles];
+    }
+  }
+  if (!Array.isArray(userRoles)) userRoles = [userRoles];
+
   if (userRoles.includes('super_admin')) return true;
 
-  // 2. Standard Permission Check
   return userRoles.some((role) => {
-    const allowedPermissions = ROLE_DEFINITIONS[role] || [];
-    return allowedPermissions.includes(requiredPermission);
+    const allowed = ROLE_DEFINITIONS[role] || [];
+    return allowed.includes(requiredPermission);
   });
 };
 
-// Map resources to the specific PERMISSION required to view them
 const RESOURCE_MAP = {
-  // Public
   donations: null,
-
-  // Restricted Data Tables
-  users: PERMISSIONS.VIEW_USERS,
-  audit_logs: PERMISSIONS.VIEW_AUDIT_LOGS,
-  inventory: PERMISSIONS.MANAGE_INVENTORY, // Example
-
-  // Developer Tools
+  test_items: null,
+  users: PERMISSIONS.READ_USERS || PERMISSIONS.VIEW_USERS,
+  audit_logs: PERMISSIONS.READ_AUDIT_LOGS || PERMISSIONS.VIEW_AUDIT_LOGS,
+  inventory: PERMISSIONS.MANAGE_INVENTORY,
   server_logs: PERMISSIONS.VIEW_SOCKET_TEST,
   reports: PERMISSIONS.VIEW_ADMIN_TOOLS,
+  'admin/trash': PERMISSIONS.READ_TRASH, // FIX: Allow subscription to trash
 };
 
-// --- STATE MANAGEMENT ---
-const disconnectTimeouts = new Map();
-const OFFLINE_GRACE_PERIOD_MS = 2000;
-const forcedDisconnects = new Set();
+// --- PRESENCE MANAGER (The Fix for Stale User Data) ---
+class PresenceManager {
+  constructor() {
+    this.userSockets = new Map(); // Map<UserId, Set<SocketId>>
+    this.timeouts = new Map(); // Map<UserId, TimeoutID>
+    this.lastActivity = new Map(); // Map<UserId, Timestamp>
+  }
+
+  addSocket(userId, socketId) {
+    if (!this.userSockets.has(userId)) {
+      this.userSockets.set(userId, new Set());
+    }
+    this.userSockets.get(userId).add(socketId);
+
+    // Clear any pending "mark offline" timeouts (User reconnected/refreshed)
+    if (this.timeouts.has(userId)) {
+      clearTimeout(this.timeouts.get(userId));
+      this.timeouts.delete(userId);
+    }
+
+    // Return true if this is the FIRST connection (User just came Online)
+    return this.userSockets.get(userId).size === 1;
+  }
+
+  removeSocket(userId, socketId) {
+    if (!this.userSockets.has(userId)) return false;
+
+    const sockets = this.userSockets.get(userId);
+    sockets.delete(socketId);
+
+    // Return true if NO sockets remain (User might be going offline)
+    if (sockets.size === 0) {
+      this.userSockets.delete(userId);
+      return true;
+    }
+    return false;
+  }
+
+  shouldUpdateActivity(userId) {
+    const now = Date.now();
+    const last = this.lastActivity.get(userId) || 0;
+    if (now - last > PRESENCE_OPTS.ACTIVITY_THROTTLE) {
+      this.lastActivity.set(userId, now);
+      return true;
+    }
+    return false;
+  }
+}
+
+const presence = new PresenceManager();
 
 export const initSocket = (httpServer, sessionMiddleware) => {
   const io = new Server(httpServer, {
     cors: corsOptions,
-    connectionStateRecovery: {
-      maxDisconnectionDuration: 2 * 60 * 1000,
-      skipMiddlewares: false,
-    },
+    connectionStateRecovery: { maxDisconnectionDuration: 120000 },
   });
 
   setIO(io);
 
-  // Attach Middleware
   io.engine.use(sessionMiddleware);
   io.engine.use(passport.initialize());
   io.engine.use(passport.session());
@@ -125,284 +148,156 @@ export const initSocket = (httpServer, sessionMiddleware) => {
   });
 
   io.on('connection', async (socket) => {
-    if (socket.recovered) {
-      logInfo(`[Recovery] Socket ${socket.id} restored connection.`);
-    }
-
-    // --- 1. SESSION INITIALIZATION ---
-    if (socket.isGuest) {
-      logInfo(`Guest connected: ${socket.id}`);
-    } else {
+    // 1. SESSION INIT
+    if (!socket.isGuest) {
       const userId = socket.user.id;
-      logInfo(`User connected: ${socket.user.email}`);
 
-      // Clear pending disconnect timers (user reconnected fast)
-      if (disconnectTimeouts.has(userId)) {
-        clearTimeout(disconnectTimeouts.get(userId));
-        disconnectTimeouts.delete(userId);
-      }
+      // Join Personal Rooms
+      socket.join(`user:${userId}`);
 
-      // Join Identity Rooms
-      socket.join(`user:${userId}`); // For system messages (kicks, alerts)
-      const userRoles = Array.isArray(socket.user.role)
-        ? socket.user.role
-        : [socket.user.role];
-      userRoles.forEach((r) => socket.join(`role:${r}`)); // For role-based broadcasts
+      let roles = socket.user.role;
+      if (typeof roles === 'string')
+        try {
+          roles = JSON.parse(roles);
+        } catch {}
+      if (Array.isArray(roles)) roles.forEach((r) => socket.join(`role:${r}`));
 
-      // Update Database Status
-      try {
-        const user = await db.User.findByPk(userId);
-        if (user) {
-          const currentSockets = user.socketId || [];
-          if (!currentSockets.includes(socket.id)) {
-            user.socketId = [...currentSockets, socket.id];
-          }
-          user.isOnline = true;
-          user.last_active = new Date();
-          await user.save();
+      // PRESENCE: Handle Connection
+      const isFirstConnection = presence.addSocket(userId, socket.id);
 
-          // Acknowledge connection
-          socket.emit('log', {
-            message: 'Connected to Realtime Server',
-            type: 'success',
+      // Immediate DB Update only if coming online for the first time
+      // OR if we haven't updated 'last_active' in a while
+      if (isFirstConnection || presence.shouldUpdateActivity(userId)) {
+        try {
+          await db.User.update(
+            { isOnline: true, last_active: new Date() },
+            { where: { id: userId }, silent: true }, // silent: true to avoid recursive hooks
+          );
+          // Manually broadcast update to avoid hook loops, but ensure client sees it
+          io.emit('users_updated', {
+            id: userId,
+            isOnline: true,
+            last_active: new Date(),
           });
+        } catch (e) {
+          console.error('Presence update failed', e);
         }
-      } catch (err) {
-        logError('Error handling user connection:', err);
       }
+
+      logInfo(`User connected: ${socket.user.email}`);
     }
 
-    // --- 2. DATA RESOURCES (Tables) ---
-    // Usage: socket.emit('subscribe_resource', 'audit_logs')
+    // 2. DATA SUBSCRIPTIONS
     socket.on('subscribe_resource', (resourceName) => {
-      let allowed = false;
-      let baseResource = resourceName;
+      if (!resourceName || typeof resourceName !== 'string') return;
 
-      // 2. FIX: STRICT VALIDATION BEFORE PARSING
-      // Prevent parsing massive strings or random garbage
-      if (!resourceName || typeof resourceName !== 'string' || resourceName.length > 50) {
-        return; // Silent reject
+      let permissionKey = null;
+      if (RESOURCE_MAP.hasOwnProperty(resourceName)) {
+        permissionKey = resourceName;
+      } else {
+
+        const matchedKey = Object.keys(RESOURCE_MAP)
+          .sort((a, b) => b.length - a.length)
+          .find((key) => resourceName === key || resourceName.startsWith(`${key}/`));
+          
+        if (matchedKey) permissionKey = matchedKey;
       }
 
-      // Check if it's a base resource OR a valid specific ID pattern
-      // Simple heuristic: Must start with a known channel
-      const isKnownChannel = ALLOWED_CHANNELS.some(ch => resourceName === ch || resourceName.startsWith(`${ch}_`));
-      
-      if (!isKnownChannel) {
-        return socket.emit('log', { type: 'error', message: 'Invalid channel name' });
-      }
-
-      // Handle specific ID subscriptions (e.g. 'users_123')
-      if (resourceName.includes('_')) {
-        // Logic to extract base resource if needed
-        // For now, we assume strict mapping to RESOURCE_MAP keys
-      }
-
+      const baseResource = permissionKey || resourceName;
       const requiredPerm = RESOURCE_MAP[baseResource];
 
-      // Determine Access
-      if (requiredPerm === undefined) {
-        allowed = false; // Unknown resource
-      } else if (requiredPerm === null) {
-        allowed = true; // Public
-      } else if (requiredPerm === 'AUTHENTICATED') {
-        allowed = !socket.isGuest;
-      } else {
+      let allowed = false;
+      if (requiredPerm === undefined) allowed = false;
+      else if (requiredPerm === null) allowed = true;
+      else
         allowed = !socket.isGuest && hasPermission(socket.user, requiredPerm);
-      }
 
       if (allowed) {
         socket.join(resourceName);
-        if (resourceName !== 'server_logs') {
-          logInfo(
-            `Socket ${socket.id} joined resource stream: ${resourceName}`,
-          );
-        }
       } else {
         socket.emit('log', {
-          message: `Access Denied: Insufficient permissions for ${resourceName}`,
           type: 'error',
+          message: `Access Denied to ${resourceName}`,
         });
-        logInfo(`Access denied for ${socket.id} to ${resourceName}`);
       }
     });
 
-    socket.on('unsubscribe_resource', (resourceName) => {
-      socket.leave(resourceName);
-    });
+    socket.on('unsubscribe_resource', (r) => socket.leave(r));
 
-    // --- 3. NOTIFICATIONS SYSTEM ---
-    // Usage: socket.emit('subscribe_notifications')
-    socket.on('subscribe_notifications', () => {
-      if (socket.isGuest) return;
-
-      const room = `notifications:${socket.user.id}`;
-      socket.join(room);
-      logInfo(`User ${socket.user.email} subscribed to alerts`);
-    });
-
-    // --- 4. DIRECT MESSAGING (Chat) ---
-    // Usage: socket.emit('join_chat')
-    socket.on('join_chat', () => {
-      if (socket.isGuest) return;
-
-      const room = `chat:${socket.user.id}`;
-      socket.join(room);
-      logInfo(`User ${socket.user.email} enabled Direct Messaging`);
-    });
-
-    // --- 5. SYSTEM ACTIONS ---
-
-    // Keep Alive Ping
+    // 3. ACTIVITY PING (Throttled)
     socket.on('ping_activity', async () => {
-      if (socket.isGuest || !socket.user) return;
-      try {
-        const user = await db.User.findByPk(socket.user.id);
-        if (user) {
-          const now = Date.now();
-          // Only update DB every 30s to save write ops
-          const THRESHOLD = 30 * 1000;
-          const lastActive = user.last_active
-            ? new Date(user.last_active).getTime()
-            : 0;
+      if (socket.isGuest) return;
+      const userId = socket.user.id;
 
-          if (now - lastActive > THRESHOLD) {
-            user.last_active = new Date();
-            await user.save();
-          }
+      if (presence.shouldUpdateActivity(userId)) {
+        try {
+          await db.User.update(
+            { isOnline: true, last_active: new Date() },
+            { where: { id: userId }, silent: true },
+          );
+          // Broadcast 'active' to keep UI fresh without full refetch
+          io.emit('users_updated', {
+            id: userId,
+            isOnline: true,
+            last_active: new Date(),
+          });
+        } catch (e) {}
+      }
+    });
+
+    // 4. DISCONNECT
+    socket.on('disconnect', () => {
+      if (!socket.isGuest) {
+        const userId = socket.user.id;
+
+        // Remove from tracker
+        const isCompletelyGone = presence.removeSocket(userId, socket.id);
+
+        if (isCompletelyGone) {
+          // DEBOUNCE: Wait 2s before marking offline (in case of refresh)
+          const timeoutId = setTimeout(async () => {
+            // Double check: Did they reconnect in the meantime?
+            if (!presence.userSockets.has(userId)) {
+              try {
+                await db.User.update(
+                  { isOnline: false, last_active: new Date() },
+                  { where: { id: userId }, silent: true },
+                );
+                io.emit('users_updated', {
+                  id: userId,
+                  isOnline: false,
+                  last_active: new Date(),
+                });
+                logInfo(`User marked offline: ${socket.user.email}`);
+              } catch (e) {}
+            }
+          }, PRESENCE_OPTS.DEBOUNCE_MS);
+
+          presence.timeouts.set(userId, timeoutId);
         }
-      } catch (err) {
-        logError('Ping error', err);
       }
     });
 
-    // Legacy Donation Handler (Keep for compatibility)
-    socket.on('create_donation', async (data) => {
-      try {
-        if (socket.isGuest)
-          return socket.emit('log', { message: 'Login required.' });
-
-        await db.Donation.create({
-          donorName: socket.user.email,
-          donorEmail: socket.user.email,
-          itemDescription: data.itemDescription,
-          quantity: data.quantity,
-        });
-        // Note: The DB Hook in models/index.js will handle the broadcast
-      } catch (error) {
-        logError('Donation socket error', error);
-      }
-    });
-
-    // Admin Action: Force Kick
+    // ... (Keep force_disconnect_user and legacy handlers)
     socket.on('force_disconnect_user', async ({ userId }) => {
-      // 1. Permission Check
       if (
         !socket.isGuest &&
         hasPermission(socket.user, PERMISSIONS.DISCONNECT_USERS)
       ) {
-        try {
-          const targetUser = await db.User.findByPk(userId);
-
-          if (targetUser) {
-            // 2. Hierarchy Check (Admin cannot kick Super Admin)
-            const initiatorRoles = Array.isArray(socket.user.role)
-              ? socket.user.role
-              : [socket.user.role];
-            const targetRoles = Array.isArray(targetUser.role)
-              ? targetUser.role
-              : [targetUser.role];
-
-            const isInitiatorSuper = initiatorRoles.includes('super_admin');
-            const isTargetSuper = targetRoles.includes('super_admin');
-
-            if (isTargetSuper && !isInitiatorSuper) {
-              return socket.emit('log', {
-                message: 'Security Alert: You cannot disconnect a Super Admin.',
-                type: 'error',
-              });
-            }
-
-            // 3. Execution
-            forcedDisconnects.add(userId);
-
-            // Notify target
-            io.to(`user:${targetUser.id}`).emit('force_logout', {
-              message: 'Session terminated by administrator.',
-            });
-
-            // Disconnect all their sockets
-            const socketIds = targetUser.socketId || [];
-            socketIds.forEach((sid) => {
-              const s = io.sockets.sockets.get(sid);
-              if (s) s.disconnect(true);
-            });
-
-            // Update DB
-            targetUser.isOnline = false;
-            targetUser.socketId = [];
-            await targetUser.save();
-
-            await logOperation({
-              operation: 'FORCE_LOGOUT',
-              description: `Kicked user ${targetUser.email}`,
-              affectedResource: `user:${targetUser.id}`,
-              initiator: socket.user.email,
-            });
+        io.to(`user:${userId}`).emit('force_logout', {
+          message: 'Session terminated.',
+        });
+        // Force socket disconnects
+        // Note: In clustered environments, use Redis adapter. For single node:
+        const room = io.sockets.adapter.rooms.get(`user:${userId}`);
+        if (room) {
+          for (const clientId of room) {
+            const clientSocket = io.sockets.sockets.get(clientId);
+            if (clientSocket) clientSocket.disconnect(true);
           }
-
-          // Clear lock after 5s
-          setTimeout(() => forcedDisconnects.delete(userId), 5000);
-        } catch (error) {
-          logError('Kick error', error);
         }
-      }
-    });
-
-    // Disconnect Handler
-    socket.on('disconnect', async () => {
-      if (!socket.isGuest) {
-        const userId = socket.user.id;
-        const userEmail = socket.user.email;
-
-        // If they were kicked, don't run normal disconnect logic
-        if (forcedDisconnects.has(userId)) return;
-
-        try {
-          // Remove this specific socket ID from the user's list
-          const user = await db.User.findByPk(userId);
-          if (user) {
-            const currentSockets = user.socketId || [];
-            user.socketId = currentSockets.filter((id) => id !== socket.id);
-            await user.save();
-          }
-
-          // Grace Period: Wait 2s to see if they reconnect (page refresh)
-          const timeoutId = setTimeout(async () => {
-            const freshUser = await db.User.findByPk(userId);
-            const userRoom = io.sockets.adapter.rooms.get(`user:${userId}`);
-
-            // If no sockets remain in their room, mark offline
-            const activeConnectionCount = userRoom ? userRoom.size : 0;
-
-            if (freshUser && activeConnectionCount === 0) {
-              freshUser.isOnline = false;
-              freshUser.last_active = new Date();
-              await freshUser.save();
-              logInfo(`User marked offline: ${userEmail}`);
-            }
-
-            if (disconnectTimeouts.get(userId) === timeoutId) {
-              disconnectTimeouts.delete(userId);
-            }
-          }, OFFLINE_GRACE_PERIOD_MS);
-
-          disconnectTimeouts.set(userId, timeoutId);
-        } catch (error) {
-          logError('Disconnect cleanup error:', error);
-        }
-      } else {
-        logInfo(`Guest disconnected: ${socket.id}`);
+        await db.User.update({ isOnline: false }, { where: { id: userId } });
+        io.emit('users_updated', { id: userId, isOnline: false });
       }
     });
   });

@@ -2,18 +2,8 @@ import * as FileService from '../services/file.service.js';
 import { db } from '../models/index.js';
 import path from 'path';
 import fs from 'fs/promises';
-import { fileURLToPath } from 'url';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-// Match the config logic
-const UPLOADS_ROOT = process.env.UPLOAD_DIR 
-  ? path.resolve(process.env.UPLOAD_DIR)
-  : path.resolve(__dirname, '..', '..', '..', 'uploads');
-
-
-
+// Helper for error pages (Keep your existing getStyledError function here)
 const getStyledError = (code, title, message) => {
   // Config matching src/pages/error/ErrorPage.jsx
   const themes = {
@@ -206,9 +196,7 @@ const getStyledError = (code, title, message) => {
       <button onclick="window.history.back()" class="btn btn-secondary">
         Go Back
       </button>
-      <a href="/dashboard" class="btn btn-primary">
-        Dashboard
-      </a>
+
     </div>
   </div>
 </body>
@@ -223,6 +211,7 @@ export const uploadFile = async (req, res, next) => {
     const fileRecord = await FileService.processUpload(req.file, {
       relatedType: req.body.relatedType,
       relatedId: req.body.relatedId,
+      category: req.body.category, 
       isPublic: req.body.isPublic,
       allowedRoles: req.body.allowedRoles,
       user: req.user
@@ -233,53 +222,125 @@ export const uploadFile = async (req, res, next) => {
     next(error);
   }
 };
-
 export const viewFile = async (req, res, next) => {
   try {
     const { id } = req.params;
     
+    // 1. Fetch File Record
     const file = await db.File.findByPk(id);
     
-    // 404: Not Found
     if (!file) {
-      return res.status(404).send(getStyledError(404, 'File Not Found', 'The resource you are looking for does not exist or has been removed.'));
+      return res.status(404).send(getStyledError(404, 'File Not Found', 'The resource you are looking for does not exist.'));
     }
 
-    if (!file.isPublic) {
-      // 401: Unauthorized
+    // 2. LOGIC SEPARATION: Public vs Private
+    if (file.isPublic) {
+      res.setHeader('Cache-Control', 'public, max-age=3600'); 
+    } else {
+      // --- INTERNAL FILE STRATEGY ---
       if (!req.isAuthenticated() || !req.user) {
-        return res.status(401).send(getStyledError(401, 'Authentication Required', 'You must be signed in to view this secure document.'));
+        return res.status(401).send(getStyledError(401, 'Authentication Required', 'Sign in to view this document.'));
       }
 
-      const restrictedRoles = file.allowedRoles || [];
-      if (restrictedRoles.length > 0) {
-        const userRoles = Array.isArray(req.user.role) ? req.user.role : [req.user.role];
-        const isSuperAdmin = userRoles.includes('super_admin');
-        const hasPermission = userRoles.some(r => restrictedRoles.includes(r));
+      const userRoles = Array.isArray(req.user.role) ? req.user.role : [req.user.role];
 
-        // 403: Forbidden
-        if (!isSuperAdmin && !hasPermission) {
-          return res.status(403).send(getStyledError(403, 'Access Denied', 'You do not have the required permissions to view this file.'));
+      // --- FIX START: Robust Parsing for JSON Column ---
+      let restrictedRoles = file.allowedRoles;
+      
+      // If DB returned a JSON string, parse it
+      if (typeof restrictedRoles === 'string') {
+        try {
+          restrictedRoles = JSON.parse(restrictedRoles);
+        } catch (e) {
+          restrictedRoles = [];
         }
       }
+      
+      // Safety check: ensure it is truly an array
+      if (!Array.isArray(restrictedRoles)) {
+        restrictedRoles = [];
+      }
+      // --- FIX END ---
+      
+      const isSuperAdmin = userRoles.includes('super_admin');
+      const isOwner = file.uploadedBy === req.user.email;
+      
+      // Now .some() is guaranteed to work
+      const hasPermission = restrictedRoles.length > 0 && restrictedRoles.some(r => userRoles.includes(r));
+
+      if (!isSuperAdmin && !isOwner && !hasPermission) {
+        return res.status(403).send(getStyledError(403, 'Access Denied', 'You do not have permission to view this file.'));
+      }
+
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
     }
 
-    const folderName = file.relatedType || 'misc'; 
-    const absolutePath = path.join(UPLOADS_ROOT, folderName, file.fileName);
-    
+    // 3. Physical Access
+    const absolutePath = file.path; 
     try {
       await fs.access(absolutePath);
     } catch {
-      // 410: Gone (File record exists, but binary is missing)
-      return res.status(410).send(getStyledError(410, 'File Unavailable', 'The file record exists, but the physical file is missing from the server storage.'));
+      return res.status(410).send(getStyledError(410, 'File Unavailable', 'The physical file is missing from server storage.'));
     }
+
+    // 4. Content Disposition
+    const inlineTypes = ['application/pdf', 'image/jpeg', 'image/png', 'image/gif'];
+    const disposition = inlineTypes.includes(file.mimeType) ? 'inline' : 'attachment';
 
     res.setHeader('Content-Type', file.mimeType || 'application/octet-stream');
     const safeFilename = encodeURIComponent(file.originalName);
-    res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${safeFilename}`);
+    res.setHeader('Content-Disposition', `${disposition}; filename*=UTF-8''${safeFilename}`);
     
     res.sendFile(absolutePath);
 
+  } catch (error) {
+    next(error);
+  }
+};
+
+// src/controllers/file.controller.js
+
+export const deleteFile = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { relatedType, relatedId } = req.query;
+
+    // FIX: 1. Fetch the file link details first
+    const fileLink = await db.FileLink.findOne({
+      where: { fileId: id, relatedType, relatedId }
+    });
+
+    if (!fileLink) {
+      return res.status(404).json({ message: "File attachment not found." });
+    }
+
+    // FIX: 2. Authorization Check
+    // Allow if:
+    // A. User uploaded the file (assuming you track uploadedBy in File model or FileLink)
+    // B. User has permission to edit the 'relatedType' (e.g., UPDATE_USERS)
+    // C. User is Super Admin
+    
+    // Check if user is Super Admin
+    const isSuperAdmin = req.user.role?.includes('super_admin');
+    
+    // Check dynamic permission (e.g. if type is 'users', do they have 'update_users'?)
+    // You might need a mapping helper here similar to your socket.js resource map
+    const requiredPerm = `update_${relatedType}`; 
+    // const hasPerm = hasPermission(req.user, requiredPerm); // Implement this utility
+
+    // For now, let's enforce a basic ownership check if you aren't an admin
+    // Note: You need to make sure your File model stores 'uploadedBy' (email or ID)
+    const file = await db.File.findByPk(id);
+    const isOwner = file && file.uploadedBy === req.user.email;
+
+    if (!isSuperAdmin && !isOwner /* && !hasPerm */) {
+      return res.status(403).json({ message: "Access Denied: You cannot delete this file." });
+    }
+
+    await FileService.unlinkFile(id, relatedType, relatedId);
+    res.json({ success: true, message: 'File deleted' });
   } catch (error) {
     next(error);
   }

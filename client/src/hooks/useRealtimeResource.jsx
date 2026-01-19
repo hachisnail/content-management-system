@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { createRealtimeStore } from "../stores/createRealtimeStore";
 
 const resourceStoreMap = new Map();
@@ -14,46 +14,67 @@ const defaultEntityState = { data: null, loading: true, error: null };
 
 export const useRealtimeResource = (
   resourceName,
-  { id, queryParams, isEnabled = true } = {}
+  { id, queryParams, isEnabled = true, updateStrategy = "auto" } = {}
 ) => {
   const useStore = getResourceStore(resourceName);
-  // Get both subscribe AND unsubscribe actions
-  const { subscribe, unsubscribe, fetchQuery, fetchEntity } =
-    useStore.getState();
 
+  // Get stable actions from store
+  const subscribe = useStore((state) => state.subscribe);
+  const unsubscribe = useStore((state) => state.unsubscribe);
+  const fetchQuery = useStore((state) => state.fetchQuery);
+  const fetchEntity = useStore((state) => state.fetchEntity);
+
+  // 1. Determine Cache Key
   const key = useMemo(() => {
     if (id) return String(id);
     return JSON.stringify(queryParams || {});
   }, [id, queryParams]);
 
-  const { selector, fetchAction } = useMemo(() => {
-    if (id) {
-      return {
-        selector: (state) => state.entities.get(key) || defaultEntityState,
-        fetchAction: () => fetchEntity(key),
-      };
-    }
-    return {
-      selector: (state) => state.queries.get(key) || defaultQueryState,
-      fetchAction: () => fetchQuery(key),
-    };
-  }, [id, key, fetchQuery, fetchEntity]);
+  // 2. Determine which fetch action to use
+  const isEntity = !!id;
 
+  // 3. Create Stable Selector
+  const selector = useMemo(() => {
+    if (isEntity) {
+      return (state) => state.entities.get(key) || defaultEntityState;
+    }
+    return (state) => state.queries.get(key) || defaultQueryState;
+  }, [isEntity, key]);
+
+  // 4. Select Data
   const { data, meta, loading, error } = useStore(selector);
 
+  // 5. Subscription & Fetch Effect
   useEffect(() => {
-    if (isEnabled) {
-      subscribe(); // Increment count
-      fetchAction();
+    if (!isEnabled) return;
 
-      // CLEANUP: Decrement count when this component unmounts or params change
-      return () => {
-        unsubscribe();
-      };
+    // A. Subscribe (Increments ref count)
+    subscribe();
+
+    // B. Initial Fetch
+    // We use the raw key here to avoid closure staleness
+    if (isEntity) {
+      fetchEntity(key);
+    } else {
+      fetchQuery(key);
     }
-  }, [resourceName, key, isEnabled, subscribe, unsubscribe, fetchAction]);
 
-  if (id) {
+    // C. Cleanup (Decrements ref count)
+    return () => {
+      unsubscribe();
+    };
+  }, [
+    isEnabled,
+    resourceName,
+    key,
+    isEntity,
+    subscribe,
+    unsubscribe,
+    fetchEntity,
+    fetchQuery,
+  ]);
+
+  if (isEntity) {
     return { data, loading, error };
   }
   return { data, meta, loading, error };

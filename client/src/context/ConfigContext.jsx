@@ -25,7 +25,7 @@ export const ConfigProvider = ({ children }) => {
     } catch (err) {
       console.error("Failed to load system config:", err);
       setError(err); // Store the full error object for the UI to handle
-    } finally {
+    } finally {npm
       setLoading(false);
     }
   }, []);
