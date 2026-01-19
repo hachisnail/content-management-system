@@ -16,6 +16,9 @@
 - Addressed connection issues in the useRealtimeResource hook.
 - Fixed a race condition in the Users Dashboard that caused syncing problems with real-time updates.
 - Conducted further testing and refinement of the Role-Based Access Control (RBAC) system.
+<<<<<<< HEAD
 ## v0.5.0
 - File management, RBAC fixes, and UI improvements
 
+=======
+>>>>>>> 18912a67ffb7de70dcab3539dee342644a62bd12
