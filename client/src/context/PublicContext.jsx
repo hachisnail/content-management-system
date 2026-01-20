@@ -1,6 +1,6 @@
 // src/context/PublicContext.jsx
 import React, { createContext, useContext, useState, useEffect } from "react";
-import socket from "../socket";
+import socket from "@/lib/socket";
 
 const PublicContext = createContext(null);
 

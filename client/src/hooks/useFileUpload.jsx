@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import api from '../api';
+import api from '@/lib/api';
 
 /**
  * Reusable Hook for handling file uploads with metadata

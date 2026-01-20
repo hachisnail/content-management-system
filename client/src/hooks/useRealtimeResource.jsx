@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef } from "react";
-import { createRealtimeStore } from "../stores/createRealtimeStore";
+import { createRealtimeStore } from "@/stores/createRealtimeStore";
 
 const resourceStoreMap = new Map();
 const getResourceStore = (resourceName) => {

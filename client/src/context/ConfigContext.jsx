@@ -5,7 +5,7 @@ import React, {
   useEffect,
   useCallback,
 } from "react";
-import api from "../api";
+import api from "@/lib/api";
 import { LoadingSpinner, ErrorAlert } from "../components/common/StateComponents";
 
 const ConfigContext = createContext(null);

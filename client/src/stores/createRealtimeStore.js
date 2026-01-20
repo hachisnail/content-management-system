@@ -1,6 +1,6 @@
 import { create } from "zustand";
-import api from "../api";
-import socket from "../socket";
+import api from "@/lib/api";
+import socket from "@/lib/socket";
 import axios from "axios";
 
 // Configuration
