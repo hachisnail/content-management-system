@@ -35,11 +35,32 @@ export const updateUser = async (req, res, next) => {
   }
 };
 
-// ... (rest of the file remains the same as previous step) ...
 export const completeRegistration = async (req, res, next) => {
   try {
     const { token } = req.query;
     const { password, username, contactNumber, birthDay } = req.body;
+
+    // --- VALIDATION START ---
+    if (!token) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Registration token is missing.' 
+      });
+    }
+
+    const missingFields = [];
+    if (!password) missingFields.push('password');
+    if (!username) missingFields.push('username');
+    if (!contactNumber) missingFields.push('contactNumber');
+    if (!birthDay) missingFields.push('birthDay');
+
+    if (missingFields.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: `Missing required fields: ${missingFields.join(', ')}`,
+      });
+    }
+    // --- VALIDATION END ---
 
     const user = await UserService.completeRegistration(token, {
       password,

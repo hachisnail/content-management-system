@@ -360,13 +360,17 @@ export const createUser = async ({
   return userJson;
 };
 
-// ... (completeRegistration and getInvitationTemplate remain unchanged)
 export const completeRegistration = async (
   token,
   { password, username, contactNumber, birthDay },
 ) => {
+  // --- VALIDATION ADDED ---
+  if (!password || !username || !contactNumber || !birthDay) {
+    throw new Error('All fields are required.');
+  }
+
   const user = await db.User.findOne({ where: { registrationToken: token } });
-  if (!user) throw new Error('Invalid registration token');
+  if (!user) throw new Error('Invalid or expired registration token');
 
   const beforeState = user.toJSON();
   const hashedPassword = await bcrypt.hash(password, 10);
@@ -394,6 +398,7 @@ export const completeRegistration = async (
   delete userJson.registrationToken;
   return userJson;
 };
+
 
 const getInvitationTemplate = (link, firstName) => `
 <!DOCTYPE html>
