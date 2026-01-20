@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from "react";
-import socket from "../socket";
-import api from "../api";
+import socket from "../lib/socket";
+import api from "../lib/api";
 import { useRealtimeResource } from "../hooks/useRealtimeResource";
 
 const AuthContext = createContext(null);
@@ -91,7 +91,7 @@ export const AuthProvider = ({ children }) => {
       if (isLoggingOut.current) return;
 
       logout(false);
-      window.location.href = "/auth/login?session_expired=true";
+      window.location.href = "/login?session_expired=true";
     };
 
     window.addEventListener("auth:unauthorized", handleUnauthorized);
@@ -102,12 +102,12 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     const handleAuthInvalidated = () => {
       logout(false);
-      window.location.href = "/auth/login?reason=invalidated";
+      window.location.href = "/login?reason=invalidated";
     };
 
     const handleForceLogout = () => {
       logout(false);
-      window.location.href = "/auth/login?reason=force_logout";
+      window.location.href = "/login?reason=force_logout";
     };
 
     socket.on("auth_invalidated", handleAuthInvalidated);

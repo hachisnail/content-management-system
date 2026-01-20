@@ -6,7 +6,7 @@ import React, {
   useCallback,
 } from "react";
 import api from "../api";
-import { LoadingSpinner, ErrorAlert } from "../components/StateComponents";
+import { LoadingSpinner, ErrorAlert } from "../components/common/StateComponents";
 
 const ConfigContext = createContext(null);
 

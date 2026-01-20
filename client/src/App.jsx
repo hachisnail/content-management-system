@@ -16,10 +16,11 @@ import {
   RequireAuth,
   RequirePermission,
   RequireFeature,
-} from "./components/RouteGuards";
+} from "./components/common/RouteGuards";
 import MainLayout from "./layouts/MainLayout";
-import ErrorBoundary from "./components/ErrorBoundary";
-import ErrorPage from "./pages/error/ErrorPage";
+import PublicLayout from "./layouts/PublicLayout";
+import ErrorBoundary from "./components/common/ErrorBoundary";
+import { ErrorPage } from "./features/shared";
 import { routeConfig } from "./config/routeConfig";
 
 /* =========================
@@ -72,11 +73,24 @@ const renderRoutes = (routes, isPrivate = true) => {
   });
 };
 
-// Split public routes into those that need auth logic and those that don't
-const loginRoute = routeConfig.filter((r) => r.path === "auth");
-const otherPublicRoutes = routeConfig.filter(
-  (r) => r.isPublic && r.path !== "auth",
+/* =========================
+   ROUTE SPLITTING
+========================= */
+
+// 1. Auth-Dependent Public Routes (Login, Setup)
+// They are public (no guard) but need AuthContext to function
+const authPublicRoutes = routeConfig.filter(
+  (r) => r.isPublic && r.needsAuthContext
 );
+
+// 2. Pure Public Routes (Landing, Donation)
+// They don't need user data or login functions
+const purePublicRoutes = routeConfig.filter(
+  (r) => r.isPublic && !r.needsAuthContext
+);
+
+// 3. Private Routes (Dashboard, Inventory, etc.)
+// Require login and usually live inside the MainLayout
 const privateRoutes = routeConfig.filter((r) => !r.isPublic);
 
 /* =========================
@@ -86,15 +100,19 @@ const App = () => {
   const router = createBrowserRouter(
     createRoutesFromElements(
       <Route element={<PublicScope />}>
+        
         {/* ZONE 1: PURE PUBLIC (No AuthContext) */}
-        {renderRoutes(otherPublicRoutes, false)}
+      <Route element={<PublicLayout />}>
+        {renderRoutes(purePublicRoutes, false)}
+      </Route>
 
         {/* ZONE 2 & 3: EVERYTHING THAT NEEDS AUTH LOGIC */}
         <Route element={<AuthScope />}>
-          {/* Auth-Dependent Public (Login page needs the 'login' function) */}
-          {renderRoutes(loginRoute, false)}
+          
+          {/* ZONE 2: Auth-Dependent Public (Login, Setup) */}
+          {renderRoutes(authPublicRoutes, false)}
 
-          {/* Private Area (Needs 'isAuthenticated' check) */}
+          {/* ZONE 3: Private Area (Needs 'isAuthenticated' check) */}
           <Route element={<RequireAuth />}>
             <Route element={<ConfigScope />}>
               <Route element={<MainLayout />} errorElement={<ErrorBoundary />}>

@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.6.0
+
+### Features
+- **New Public Layout:** Still a WIP
+- **Domain Modules:** Added scaffolding for Articles, Inventory (Object Entry/Accessioning), and Appointments.
+- **WIP States:** Added standardized "Work in Progress" views for upcoming features.
+
+### Refactor & Technical
+- **Domain-Driven Design (DDD):** Migrated entire client codebase from `pages/` to `features/` directory structure.
+- **Routing Architecture:** Centralized route configuration with barrel file imports and "Best Match" active state logic.
+- **Auth Scoping:** Optimized `App.jsx` to apply Context Providers only where necessary (Public vs. Auth scopes).
+- **Cleanup:** Renamed `LoginTest` to `LoginPage` and removed legacy development pages.
+
 ## v0.5.2
 
 ### Bug Fixes & Improvements

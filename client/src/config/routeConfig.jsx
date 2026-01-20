@@ -1,50 +1,94 @@
-// src/routeConfig.jsx
-import { LayoutGrid, Users, FileCode, Trash2, Activity, Zap, ShieldAlert, User, Database } from "lucide-react";
+import { 
+  LayoutGrid, 
+  Users, 
+  FileCode, 
+  Trash2, 
+  Activity, 
+  Zap, 
+  ShieldAlert, 
+  Database,
+  BookOpen,
+  Box,
+  Calendar,
+  ClipboardList,
+  Archive,
+  PackagePlus
+} from "lucide-react";
 
-/* Public Pages */
-import LandingPage from "../pages/public/home";
-import LoginTest from "../pages/LoginTest";
-import CompleteRegistration from "../pages/public/CompleteRegistration";
-import SetupAdmin from "../pages/public/SetupAdmin";
-import Register from "../pages/public/Register"; // Ensure this import exists
+// --- FEATURE MODULE IMPORTS ---
+import { 
+  LandingPage, 
+  DonationPage, 
+  BookAppointmentPage 
+} from "@/features/public";
 
-/* Private Pages */
-import Dashboard from "../pages/dashboard";
-import Profile from "../pages/private/user-profile";
-import UserDirectory from "../pages/private/users-dashboard";
-import InviteUser from "../pages/private/users-dashboard/subpages/InviteUser";
-import UserProfile from "../pages/private/users-dashboard/subpages/UserProfile";
-import AuditLogs from "../pages/private/audit-logs";
-import AuditLogDetails from "../pages/private/audit-logs/subpages/AuditLogDetails";
-import GeneralTrashBin from "../pages/private/trash-bin";
-import TrashItemDetails from "../pages/private/trash-bin/subpages/TrashItemDetails";
-import Monitor from "../pages/private/_development_pages/Monitor";
-import AdminTest from "../pages/private/_development_pages/AdminTest";
-import SocketTest from "../pages/private/_development_pages/SocketTest";
-import TestDashboard from "../pages/private/_development_pages/TestDashboard";
-import FileTestPage from "../pages/test/FileTestPage";
+import { 
+  LoginPage, 
+  SetupAdminPage, 
+  CompleteRegistrationPage 
+} from "@/features/auth";
 
-// Permissions Constants
+import { DashboardPage } from "@/features/dashboard";
+import { MyProfilePage } from "@/features/my-profile"; 
+
+import { 
+  UserDirectoryPage, 
+  UserDetailsPage, 
+  InviteUserPage 
+} from "@/features/user-management";
+
+import { 
+  AuditLogListPage, 
+  AuditLogDetailsPage,
+  TrashListPage,
+  TrashItemDetailsPage,
+} from "@/features/system-tools";
+
+import { 
+  ArticleListPage, 
+  CreateArticlePage, 
+  EditArticlePage 
+} from "@/features/article-management";
+
+import { 
+  InventoryListPage, 
+  InventoryItemPage, 
+  IntakeProcessPage, 
+  AccessionSetupPage 
+} from "@/features/inventory";
+
+import { 
+  AppointmentCalendarPage, 
+  AppointmentListPage 
+} from "@/features/appointments";
+
+import { 
+  AdminTestPage, 
+  SocketTestPage, 
+  TestDashboardPage, 
+  FileTestPage 
+} from "@/features/dev-sandbox";
+
+import { ErrorPage } from "@/features/shared";
+
+// --- PERMISSIONS ---
 export const P = {
   VIEW_DASHBOARD: "view_dashboard",
-  VIEW_MONITOR: "view_monitor",
-  VIEW_AUDIT_LOGS: "read_audit_logs",
   VIEW_ADMIN_TOOLS: "view_admin_tools",
   VIEW_SOCKET_TEST: "view_socket_test",
-  VIEW_USERS: "read_users",
+  READ_USERS: "read_users",
   CREATE_USERS: "create_users",
+  READ_AUDIT_LOGS: "read_audit_logs",
   READ_TRASH: "read_trash",
+  READ_INVENTORY: "read_inventory",
+  CREATE_INVENTORY: "create_inventory",
+  READ_DONATIONS: "read_donations",
+  READ_ACQUISITIONS: "read_acquisitions",
+  READ_ARTICLES: "read_articles",
+  CREATE_ARTICLES: "create_articles",
+  READ_APPOINTMENTS: "read_appointments",
 };
 
-/**
- * routeConfig structure:
- * - path: The URL path
- * - element: The component to render
- * - permission: Required permission (Private only)
- * - isPublic: Boolean to distinguish public routes
- * - featureFlag: Optional flag for RequireFeature
- * - nav: Metadata for sidebar
- */
 export const routeConfig = [
   /* =========================
      PUBLIC ROUTES
@@ -55,126 +99,180 @@ export const routeConfig = [
     isPublic: true,
   },
   {
-    path: "auth",
+    path: "donate",
+    element: <DonationPage />,
     isPublic: true,
-    children: [
-      { path: "login", element: <LoginTest /> },
-      { path: "setup-admin", element: <SetupAdmin /> },
-      { 
-        path: "register", 
-        element: <Register />, 
-        featureFlag: "registrationEnabled" // Handle the feature guard
-      },
-    ]
+  },
+  {
+    path: "book-visit",
+    element: <BookAppointmentPage />,
+    isPublic: true,
   },
   {
     path: "complete-registration",
-    element: <CompleteRegistration />,
+    element: <CompleteRegistrationPage />,
     isPublic: true,
+  },
+
+  /* =========================
+     AUTH ROUTES (Public but need Context)
+  ========================= */
+  {
+    path: "login",
+    element: <LoginPage />,
+    isPublic: true,
+    needsAuthContext: true, // <--- New Flag
+  },
+  {
+    path: "setup-admin",
+    element: <SetupAdminPage />,
+    isPublic: true,
+    needsAuthContext: true, // <--- New Flag
   },
 
   /* =========================
      PRIVATE ROUTES
   ========================= */
- {
+  
+  // 1. DASHBOARD
+  {
     path: "dashboard",
-    element: <Dashboard />,
+    element: <DashboardPage />,
     permission: P.VIEW_DASHBOARD,
     nav: { label: "Dashboard", icon: LayoutGrid }
   },
+
+  // 2. APPOINTMENTS
   {
-    path: "profile",
-    element: <Profile />,
+    path: "appointments",
+    permission: P.READ_APPOINTMENTS,
+    nav: { label: "Calendar", icon: Calendar },
+    children: [
+      { index: true, element: <AppointmentCalendarPage />, permission: P.READ_APPOINTMENTS },
+      { path: "list", element: <AppointmentListPage />, permission: P.READ_APPOINTMENTS }
+    ]
   },
+
+  // 3. ARTICLES
+  {
+    path: "articles",
+    permission: P.READ_ARTICLES,
+    nav: { label: "Articles", icon: BookOpen },
+    children: [
+      { index: true, element: <ArticleListPage />, permission: P.READ_ARTICLES },
+      { path: "new", element: <CreateArticlePage />, permission: P.CREATE_ARTICLES },
+      { path: ":id/edit", element: <EditArticlePage />, permission: P.CREATE_ARTICLES }
+    ]
+  },
+
+  // 4. COLLECTIONS MANAGEMENT
   {
     type: "section",
-    label: "Management",
-    permissions: [P.VIEW_USERS, P.VIEW_AUDIT_LOGS],
+    label: "Collections Management",
+    permissions: [P.READ_INVENTORY],
+    children: [
+      {
+        path: "inventory/entry",
+        element: <IntakeProcessPage />,
+        permission: P.READ_DONATIONS,
+        nav: { label: "Object Entry", icon: PackagePlus } 
+      },
+      {
+        path: "inventory/accession",
+        element: <AccessionSetupPage />,
+        permission: P.READ_ACQUISITIONS,
+        nav: { label: "Accessioning", icon: Archive } 
+      },
+      {
+        path: "inventory",
+        permission: P.READ_INVENTORY,
+        nav: { label: "The Collection", icon: Box },
+        children: [
+          { index: true, element: <InventoryListPage />, permission: P.READ_INVENTORY },
+          { path: ":id", element: <InventoryItemPage />, permission: P.READ_INVENTORY }
+        ]
+      },
+    ]
+  },
+
+  // 5. USER ADMINISTRATION
+  {
+    type: "section",
+    label: "Administration",
+    permissions: [P.READ_USERS, P.READ_AUDIT_LOGS],
     children: [
       {
         path: "users",
-        permission: P.VIEW_USERS,
-        nav: { label: "Directory", icon: Users },
+        permission: P.READ_USERS,
+        nav: { label: "User Directory", icon: Users },
         children: [
-          // Use index for the list view
-          { index: true, element: <UserDirectory />, permission: P.VIEW_USERS },
-          { path: ":id", element: <UserProfile />, permission: P.VIEW_USERS }
+          { index: true, element: <UserDirectoryPage />, permission: P.READ_USERS },
+          { path: ":id", element: <UserDetailsPage />, permission: P.READ_USERS }
         ]
       },
       {
         path: "users/invite",
-        element: <InviteUser />,
+        element: <InviteUserPage />,
         permission: P.CREATE_USERS
       },
       {
         path: "audit-logs",
-        permission: P.VIEW_AUDIT_LOGS,
-        nav: { label: "Audit Logs", icon: FileCode },
+        permission: P.READ_AUDIT_LOGS,
+        nav: { label: "Audit Trail", icon: FileCode },
         children: [
-          // Use index for the list view
-          { index: true, element: <AuditLogs />, permission: P.VIEW_AUDIT_LOGS },
-          { path: ":id", element: <AuditLogDetails />, permission: P.VIEW_AUDIT_LOGS }
+          { index: true, element: <AuditLogListPage />, permission: P.READ_AUDIT_LOGS },
+          { path: ":id", element: <AuditLogDetailsPage />, permission: P.READ_AUDIT_LOGS }
         ]
-      }
-    ]
-  },
-  {
-    type: "section",
-    label: "System Tools",
-    permissions: [P.READ_TRASH, P.VIEW_MONITOR, P.VIEW_ADMIN_TOOLS],
-    children: [
+      },
       {
         path: "admin/trash",
         permission: P.READ_TRASH,
         nav: { label: "Recycle Bin", icon: Trash2 },
         children: [
-          // Use index for the list view
-          { index: true, element: <GeneralTrashBin />, permission: P.READ_TRASH },
-          { path: ":id", element: <TrashItemDetails />, permission: P.READ_TRASH }
+          { index: true, element: <TrashListPage />, permission: P.READ_TRASH },
+          { path: ":id", element: <TrashItemDetailsPage />, permission: P.READ_TRASH }
         ]
       },
-
+      // {
+      //   path: "monitor",
+      //   element: <LiveMonitorPage />,
+      //   permission: P.VIEW_ADMIN_TOOLS,
+      //   nav: { label: "System Health", icon: Activity }
+      // }
     ]
   },
+
+  // 6. DEV LAB
   {
     type: "section",
-    label: "Development Test Pages",
-    permissions: [P.VIEW_MONITOR, P.VIEW_ADMIN_TOOLS, P.VIEW_SOCKET_TEST],
+    label: "Dev Lab",
+    permissions: [P.VIEW_ADMIN_TOOLS],
     children: [
-            {
+      {
         path: "dev",
-        permission: P.VIEW_ADMIN_TOOLS,
         children: [
-          {
-            path: "monitor",
-            element: <Monitor />,
-            permission: P.VIEW_MONITOR,
-            nav: { label: "Live Monitor", icon: Activity }
-          },
-          {
-            path: "socket-test",
-            element: <SocketTest />,
-            permission: P.VIEW_SOCKET_TEST,
-            nav: { label: "Socket IO", icon: Zap }
-          },
-          {
-            path: "admin-test",
-            element: <AdminTest />,
-            nav: { label: "Admin Sandbox", icon: ShieldAlert }
-          },
-          {
-            path: "test-dashboard",
-            element: <TestDashboard />,
-          },
-          {
-            path: "file-test",
-            element: <FileTestPage />,
-            nav: { label: "File Lab", icon: Database }
-          }
+          { path: "socket-test", element: <SocketTestPage />, nav: { label: "Socket IO", icon: Zap } },
+          { path: "admin-test", element: <AdminTestPage />, nav: { label: "Admin Sandbox", icon: ShieldAlert } },
+          { path: "file-test", element: <FileTestPage />, nav: { label: "File Lab", icon: Database } },
+          { path: "test-dashboard", element: <TestDashboardPage /> },
         ]
       }
-
-
     ]
+  },
+
+  // HIDDEN / UTILITY
+  {
+    path: "profile",
+    element: <MyProfilePage />,
+  },
+  {
+    path: "unauthorized",
+    element: <ErrorPage code={403} />,
+    isPublic: true,
+  },
+  {
+    path: "*",
+    element: <ErrorPage code={404} />,
+    isPublic: true,
   }
 ];

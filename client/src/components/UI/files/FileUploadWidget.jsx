@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react"; // Added useRef for file clearing
 import { UploadCloud } from "lucide-react";
 
 import { useFileUpload } from "../../../hooks/useFileUpload";
@@ -16,6 +16,7 @@ const FileUploadWidget = ({
   const { upload, uploading, error } = useFileUpload();
   const [selectedFile, setSelectedFile] = useState(null);
   const [category, setCategory] = useState("general");
+  const fileInputRef = useRef(null); // Ref to clear input value after upload
 
   // 1. Get Limits
   const { FILE_LIMITS } = useConfig();
@@ -57,18 +58,20 @@ const FileUploadWidget = ({
           category,
         },
         {
-          maxSize: maxSize, // <--- Pass the calculated limit
+          maxSize: maxSize,
         }
       );
 
+      // Reset state and clear the actual input DOM element
       setSelectedFile(null);
+      if (fileInputRef.current) fileInputRef.current.value = ""; 
+      
       if (onSuccess) onSuccess();
     } catch (err) {
       // Error handled by hook
     }
   };
 
-  // Helper text for the UI
   const limitLabel = (maxSize / (1024 * 1024)).toFixed(0);
 
   return (
@@ -88,7 +91,11 @@ const FileUploadWidget = ({
         />
       )}
 
-      <div className="flex flex-col sm:flex-row gap-3 items-end">
+      {/* LAYOUT FIX: 
+         1. 'sm:items-end' ensures bottom alignment only on desktop.
+         2. On mobile (default), items stretch or stack naturally.
+      */}
+      <div className="flex flex-col sm:flex-row gap-3 sm:items-end">
         <div className="flex-1 w-full">
           <label className="block text-xs font-bold uppercase text-zinc-500 mb-1">
             File{" "}
@@ -97,6 +104,7 @@ const FileUploadWidget = ({
             </span>
           </label>
           <input
+            ref={fileInputRef}
             type="file"
             onChange={handleFileChange}
             className="block w-full text-sm text-zinc-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"
@@ -112,10 +120,15 @@ const FileUploadWidget = ({
           />
         </div>
 
+        {/* LAYOUT FIX: 
+           Added 'w-full sm:w-auto' to make button full-width on mobile 
+           but auto-width on desktop.
+        */}
         <Button
           onClick={handleUpload}
           disabled={!selectedFile || uploading}
           isLoading={uploading}
+          className="w-full sm:w-auto"
         >
           Upload
         </Button>
@@ -123,6 +136,5 @@ const FileUploadWidget = ({
     </div>
   );
 };
-
 
 export default FileUploadWidget;

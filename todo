@@ -1,9 +1,13 @@
 to do=====================================================
 
+separate admin client from landing page
+-make landing page into a static site for better seo and proffesional setup
+-admin client is now a standalone web app
 
-make sure a single file can be associated to multiple table and id (just another use case/edge case)
 
 done=======================================================
+
+make sure a single file can be associated to multiple table and id (just another use case/edge case)
 
 add styling to unauthorized message in files
 add loading spinner styles to datatable and try to resolve flickering ui issue
