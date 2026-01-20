@@ -1,32 +1,25 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { Outlet, Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useConfig } from "../context/ConfigContext";
-import { APP_VERSION } from '../config'
+import { APP_VERSION } from "../config/config"; //
+import { routeConfig } from "../config/routeConfig"; //
 
 import {
-  LayoutGrid,
-  FileCode,
-  Zap,
-  Users,
   LogOut,
   Menu,
   X,
   Search,
   Bell,
-  PanelLeftClose,
-  PanelLeftOpen,
+  PanelLeftClose, // Restored icon
+  PanelLeftOpen, // Restored icon
   User,
   MoreVertical,
   ChevronRight,
   Home,
-  Activity,
-  ShieldAlert,
-  Terminal,
-  Trash2, // <--- Import Trash Icon
 } from "lucide-react";
 
-import { ConfirmationModal, Dropdown, Avatar } from "../components/UI";
+import { ConfirmationModal, Dropdown, Avatar } from "../components/UI"; //
 
 const WIDTH_EXPANDED = "w-[260px]";
 const WIDTH_COLLAPSED = "w-[72px]";
@@ -74,7 +67,7 @@ const NavSectionTitle = ({ label, isCollapsed }) => {
 
 const MainLayout = () => {
   const { user, logout } = useAuth();
-  const { hasPermission, PERMISSIONS } = useConfig();
+  const { hasPermission } = useConfig();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -82,7 +75,6 @@ const MainLayout = () => {
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-
   const [breadcrumbLabel, setBreadcrumbLabel] = useState(null);
 
   useEffect(() => {
@@ -92,12 +84,16 @@ const MainLayout = () => {
 
   const handleLogout = async () => {
     await logout();
-    navigate("/auth/login");
+    navigate("/auth/login", { state: { manualLogout: true } });
   };
 
   const isActive = (path) => {
     if (path === "/dashboard") return location.pathname === "/dashboard";
-    return location.pathname.startsWith(path);
+    const currentPath = location.pathname;
+    return (
+      currentPath === path ||
+      (currentPath.startsWith(path) && currentPath.charAt(path.length) === "/")
+    );
   };
 
   const generateBreadcrumbs = () => {
@@ -131,7 +127,6 @@ const MainLayout = () => {
                 </span>
               ) : (
                 <span className="capitalize">{label}</span>
-
               )}
               {!isLast && <ChevronRight size={14} className="text-zinc-300" />}
             </React.Fragment>
@@ -141,12 +136,62 @@ const MainLayout = () => {
     );
   };
 
-  // Check if user has ANY dev permissions to show the section header
-  const hasDevAccess =
-    hasPermission(user, PERMISSIONS.VIEW_MONITOR) ||
-    hasPermission(user, PERMISSIONS.VIEW_SOCKET_TEST) ||
-    hasPermission(user, PERMISSIONS.VIEW_ADMIN_TOOLS) ||
-    hasPermission(user, PERMISSIONS.READ_TRASH); // Added Trash check
+  const generateNav = useCallback(() => {
+    const privateRoutes = routeConfig.filter((r) => !r.isPublic);
+
+    const buildNav = (routes, basePath = "") => {
+      return routes.flatMap((route, index) => {
+        if (route.permission && !hasPermission(user, route.permission)) {
+          return [];
+        }
+
+        if (route.type === "section") {
+          const canViewSection = route.permissions.some((p) =>
+            hasPermission(user, p),
+          );
+          if (!canViewSection) return [];
+
+          return [
+            <NavSectionTitle
+              key={`section-${route.label}`}
+              label={route.label}
+              isCollapsed={isCollapsed}
+            />,
+            ...buildNav(route.children, basePath),
+          ];
+        }
+
+        if (route.nav) {
+          const fullPath = route.path.startsWith("/")
+            ? route.path
+            : `${basePath}/${route.path}`.replace(/\/+/g, "/");
+
+          return [
+            <NavItem
+              key={fullPath}
+              to={fullPath}
+              icon={route.nav.icon}
+              label={route.nav.label}
+              isCollapsed={isCollapsed}
+              isActive={isActive(fullPath)}
+            />,
+            ...(route.children ? buildNav(route.children, fullPath) : []),
+          ];
+        }
+
+        if (route.children) {
+          const nextBasePath = route.path
+            ? `${basePath}/${route.path}`.replace(/\/+/g, "/")
+            : basePath;
+          return buildNav(route.children, nextBasePath);
+        }
+
+        return [];
+      });
+    };
+
+    return buildNav(privateRoutes);
+  }, [user, isCollapsed, location.pathname, hasPermission]);
 
   return (
     <div className="flex h-screen bg-zinc-100 text-zinc-900 overflow-hidden font-sans selection:bg-black selection:text-white">
@@ -163,7 +208,7 @@ const MainLayout = () => {
         ${!isMobileOpen && isCollapsed ? WIDTH_COLLAPSED : WIDTH_EXPANDED}
       `}
       >
-        {/* LOGO AREA */}
+        {/* LOGO AREA - RESTORED VERSIONING & COLLAPSE */}
         <div className="h-[64px] flex items-center px-4 relative flex-shrink-0 border-b border-zinc-900">
           <div className="flex items-center justify-center flex-shrink-0 min-w-[40px]">
             <img src="/LOGO.png" alt="M" className="w-8 h-8 object-contain" />
@@ -174,7 +219,9 @@ const MainLayout = () => {
             }`}
           >
             MASCD<span className="font-light text-zinc-500">MIS</span>
-            <span className="ml-1 text-xs font-mono text-zinc-500">v{APP_VERSION}</span>
+            <span className="ml-1 text-xs font-mono text-zinc-500">
+              v{APP_VERSION}
+            </span>
           </span>
           <button
             onClick={() => setIsCollapsed(!isCollapsed)}
@@ -201,81 +248,7 @@ const MainLayout = () => {
 
         {/* NAVIGATION */}
         <nav className="flex-1 overflow-y-auto overflow-x-hidden scrollbar-hide py-4 space-y-1">
-          <NavItem
-            to="/dashboard"
-            icon={LayoutGrid}
-            label="Dashboard"
-            isCollapsed={isCollapsed}
-            isActive={isActive("/dashboard")}
-          />
-
-          {hasPermission(user, PERMISSIONS.READ_USERS) && (
-            <NavItem
-              to="/users"
-              icon={Users}
-              label="Directory"
-              isCollapsed={isCollapsed}
-              isActive={isActive("/users")}
-            />
-          )}
-
-          {hasPermission(user, PERMISSIONS.READ_AUDIT_LOGS) && (
-            <NavItem
-              to="/audit-logs"
-              icon={FileCode}
-              label="Audit Logs"
-              isCollapsed={isCollapsed}
-              isActive={isActive("/audit-logs")}
-            />
-          )}
-
-          {/* DEVELOPMENT SECTION */}
-          {hasDevAccess && (
-            <>
-              <NavSectionTitle label="System Tools" isCollapsed={isCollapsed} />
-
-              {/* NEW TRASH BIN ITEM */}
-              {hasPermission(user, PERMISSIONS.READ_TRASH) && (
-                <NavItem
-                  to="/admin/trash"
-                  icon={Trash2}
-                  label="Recycle Bin"
-                  isCollapsed={isCollapsed}
-                  isActive={isActive("/admin/trash")}
-                />
-              )}
-
-              {hasPermission(user, PERMISSIONS.VIEW_MONITOR) && (
-                <NavItem
-                  to="/monitor"
-                  icon={Activity}
-                  label="Live Monitor"
-                  isCollapsed={isCollapsed}
-                  isActive={isActive("/monitor")}
-                />
-              )}
-
-              {hasPermission(user, PERMISSIONS.VIEW_SOCKET_TEST) && (
-                <NavItem
-                  to="/socket-test"
-                  icon={Zap}
-                  label="Socket IO"
-                  isCollapsed={isCollapsed}
-                  isActive={isActive("/socket-test")}
-                />
-              )}
-
-              {hasPermission(user, PERMISSIONS.VIEW_ADMIN_TOOLS) && (
-                <NavItem
-                  to="/admin-test"
-                  icon={ShieldAlert}
-                  label="Admin Sandbox"
-                  isCollapsed={isCollapsed}
-                  isActive={isActive("/admin-test")}
-                />
-              )}
-            </>
-          )}
+          {generateNav()}
         </nav>
 
         {/* USER PROFILE DROPDOWN */}
@@ -341,7 +314,6 @@ const MainLayout = () => {
             )}
           </Dropdown>
         </div>
-
       </aside>
 
       {/* MOBILE HEADER */}
@@ -357,14 +329,13 @@ const MainLayout = () => {
             <span className="ml-3 font-bold text-lg tracking-tight">
               MASCD MIS
             </span>
-            
           </div>
         </header>
 
         {/* MAIN CONTENT AREA */}
         <main className="flex-1 overflow-x-hidden overflow-y-auto scroll-smooth p-0 lg:p-4">
           <div className="w-full max-w-7xl mx-auto min-h-[calc(100vh-2rem)] bg-white lg:rounded-lg shadow-sm border border-zinc-200 flex flex-col overflow-hidden">
-            {/* Top Bar with Breadcrumbs */}
+            {/* Top Bar with Breadcrumbs & RESTORED TOGGLE */}
             <div className="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-zinc-100 px-6 h-[64px] flex items-center justify-between supports-[backdrop-filter]:bg-white/80">
               <div className="flex items-center space-x-2">
                 {isCollapsed && (
@@ -407,7 +378,6 @@ const MainLayout = () => {
         </main>
       </div>
 
-      {/* LOGOUT CONFIRMATION */}
       <ConfirmationModal
         isOpen={showLogoutConfirm}
         onClose={() => setShowLogoutConfirm(false)}

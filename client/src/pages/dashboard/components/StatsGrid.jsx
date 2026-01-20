@@ -1,6 +1,6 @@
 import React from 'react';
 import { Users, Activity, History } from 'lucide-react';
-import { Badge } from '../../../../components/UI';
+import { Badge } from '../../../components/UI';
 
 export const StatsGrid = ({ usersCount, activeSessions, logsCount }) => {
   return (

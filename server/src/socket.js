@@ -16,7 +16,7 @@ const ALLOWED_CHANNELS = [
   'server_logs',
   'reports',
   'test_items',
-  'admin/trash', // Added admin/trash
+  'admin/trash',
 ];
 
 // Prevents database spamming on rapid page reloads
@@ -71,10 +71,10 @@ const RESOURCE_MAP = {
   inventory: PERMISSIONS.MANAGE_INVENTORY,
   server_logs: PERMISSIONS.VIEW_SOCKET_TEST,
   reports: PERMISSIONS.VIEW_ADMIN_TOOLS,
-  'admin/trash': PERMISSIONS.READ_TRASH, // FIX: Allow subscription to trash
+  'admin/trash': PERMISSIONS.READ_TRASH,
 };
 
-// --- PRESENCE MANAGER (The Fix for Stale User Data) ---
+// --- PRESENCE MANAGER ---
 class PresenceManager {
   constructor() {
     this.userSockets = new Map(); // Map<UserId, Set<SocketId>>
@@ -142,6 +142,7 @@ export const initSocket = (httpServer, sessionMiddleware) => {
       socket.user = socket.request.user;
       socket.isGuest = false;
     } else {
+      socket.user = null; // Explicitly clear user
       socket.isGuest = true;
     }
     next();
@@ -149,7 +150,8 @@ export const initSocket = (httpServer, sessionMiddleware) => {
 
   io.on('connection', async (socket) => {
     // 1. SESSION INIT
-    if (!socket.isGuest) {
+    // FIX: Check 'socket.user' directly instead of '!socket.isGuest'
+    if (socket.user) {
       const userId = socket.user.id;
 
       // Join Personal Rooms
@@ -165,15 +167,12 @@ export const initSocket = (httpServer, sessionMiddleware) => {
       // PRESENCE: Handle Connection
       const isFirstConnection = presence.addSocket(userId, socket.id);
 
-      // Immediate DB Update only if coming online for the first time
-      // OR if we haven't updated 'last_active' in a while
       if (isFirstConnection || presence.shouldUpdateActivity(userId)) {
         try {
           await db.User.update(
             { isOnline: true, last_active: new Date() },
-            { where: { id: userId }, silent: true }, // silent: true to avoid recursive hooks
+            { where: { id: userId }, silent: true },
           );
-          // Manually broadcast update to avoid hook loops, but ensure client sees it
           io.emit('users_updated', {
             id: userId,
             isOnline: true,
@@ -195,11 +194,12 @@ export const initSocket = (httpServer, sessionMiddleware) => {
       if (RESOURCE_MAP.hasOwnProperty(resourceName)) {
         permissionKey = resourceName;
       } else {
-
         const matchedKey = Object.keys(RESOURCE_MAP)
           .sort((a, b) => b.length - a.length)
-          .find((key) => resourceName === key || resourceName.startsWith(`${key}/`));
-          
+          .find(
+            (key) => resourceName === key || resourceName.startsWith(`${key}/`),
+          );
+
         if (matchedKey) permissionKey = matchedKey;
       }
 
@@ -209,8 +209,8 @@ export const initSocket = (httpServer, sessionMiddleware) => {
       let allowed = false;
       if (requiredPerm === undefined) allowed = false;
       else if (requiredPerm === null) allowed = true;
-      else
-        allowed = !socket.isGuest && hasPermission(socket.user, requiredPerm);
+      // FIX: Ensure socket.user exists before checking permission
+      else allowed = !!socket.user && hasPermission(socket.user, requiredPerm);
 
       if (allowed) {
         socket.join(resourceName);
@@ -226,7 +226,8 @@ export const initSocket = (httpServer, sessionMiddleware) => {
 
     // 3. ACTIVITY PING (Throttled)
     socket.on('ping_activity', async () => {
-      if (socket.isGuest) return;
+      // FIX: Return early if user is missing
+      if (!socket.user) return;
       const userId = socket.user.id;
 
       if (presence.shouldUpdateActivity(userId)) {
@@ -235,7 +236,6 @@ export const initSocket = (httpServer, sessionMiddleware) => {
             { isOnline: true, last_active: new Date() },
             { where: { id: userId }, silent: true },
           );
-          // Broadcast 'active' to keep UI fresh without full refetch
           io.emit('users_updated', {
             id: userId,
             isOnline: true,
@@ -247,16 +247,16 @@ export const initSocket = (httpServer, sessionMiddleware) => {
 
     // 4. DISCONNECT
     socket.on('disconnect', () => {
-      if (!socket.isGuest) {
+      // FIX: Check 'socket.user' directly.
+      // During recovery, 'isGuest' might be undefined, triggering !undefined=true,
+      // but 'user' is still null, causing the crash.
+      if (socket.user) {
         const userId = socket.user.id;
 
-        // Remove from tracker
         const isCompletelyGone = presence.removeSocket(userId, socket.id);
 
         if (isCompletelyGone) {
-          // DEBOUNCE: Wait 2s before marking offline (in case of refresh)
           const timeoutId = setTimeout(async () => {
-            // Double check: Did they reconnect in the meantime?
             if (!presence.userSockets.has(userId)) {
               try {
                 await db.User.update(
@@ -268,7 +268,8 @@ export const initSocket = (httpServer, sessionMiddleware) => {
                   isOnline: false,
                   last_active: new Date(),
                 });
-                logInfo(`User marked offline: ${socket.user.email}`);
+                // FIX: Optional chaining for email log
+                logInfo(`User marked offline: ${socket.user?.email || userId}`);
               } catch (e) {}
             }
           }, PRESENCE_OPTS.DEBOUNCE_MS);
@@ -278,17 +279,16 @@ export const initSocket = (httpServer, sessionMiddleware) => {
       }
     });
 
-    // ... (Keep force_disconnect_user and legacy handlers)
     socket.on('force_disconnect_user', async ({ userId }) => {
+      // FIX: Ensure socket.user exists
       if (
-        !socket.isGuest &&
+        socket.user &&
         hasPermission(socket.user, PERMISSIONS.DISCONNECT_USERS)
       ) {
         io.to(`user:${userId}`).emit('force_logout', {
           message: 'Session terminated.',
         });
-        // Force socket disconnects
-        // Note: In clustered environments, use Redis adapter. For single node:
+
         const room = io.sockets.adapter.rooms.get(`user:${userId}`);
         if (room) {
           for (const clientId of room) {

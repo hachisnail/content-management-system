@@ -15,17 +15,16 @@ export const ConfigProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // Extracted fetch logic to allow retries
   const fetchConfig = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const data = await api.get("/config/roles");
+      const data = await api.get("/config");
       setConfig(data);
     } catch (err) {
       console.error("Failed to load system config:", err);
-      setError(err); // Store the full error object for the UI to handle
-    } finally {npm
+      setError(err);
+    } finally {
       setLoading(false);
     }
   }, []);
@@ -34,28 +33,30 @@ export const ConfigProvider = ({ children }) => {
     fetchConfig();
   }, [fetchConfig]);
 
-  /**
-   * Universal Permission Checker
+  const can = useCallback((permissionName) => {
+    if (!config || !config.my_permissions) return false;
+    return config.my_permissions.includes(permissionName);
+  }, [config]);
+
+
+/**
+   * LEGACY/ADVANCED: Checks ANY user's permissions via their Role.
+   * Use this when checking if a "target user" (not you) has a permission.
    */
   const hasPermission = (user, permissionName) => {
     if (!config || !user) return false;
+    
+    // Optimization: If checking myself, use the fast path
+    // Note: requires you to know if 'user' is 'me', usually simplified by just using can() directly
+    
+    let userRoles = Array.isArray(user.role) ? user.role : [user.role];
 
-    // Normalize user roles to array
-    let userRoles = [];
-    if (Array.isArray(user.role)) {
-      userRoles = user.role;
-    } else if (user.role) {
-      userRoles = [user.role];
-    }
-
-    // Check against the Dynamic Definitions
     return userRoles.some((role) => {
-      const allowed = config.ROLE_DEFINITIONS[role] || [];
+      const allowed = config.ROLE_DEFINITIONS?.[role] || [];
       return allowed.includes(permissionName);
     });
   };
 
-  // --- VISUAL STATES ---
 
   if (loading) {
     return (
@@ -87,13 +88,15 @@ export const ConfigProvider = ({ children }) => {
     );
   }
 
-  return (
+return (
     <ConfigContext.Provider
       value={{
-        ROLES: config.ROLES,
-        PERMISSIONS: config.PERMISSIONS,
-        ROLE_DEFINITIONS: config.ROLE_DEFINITIONS,
-        hasPermission,
+        ROLES: config?.ROLES || {},
+        PERMISSIONS: config?.PERMISSIONS || {},
+        ROLE_DEFINITIONS: config?.ROLE_DEFINITIONS || {},
+        myPermissions: config?.my_permissions || [], 
+        hasPermission, // Keep for backward compatibility
+        can,           // <--- NEW: Use this in your pages!
       }}
     >
       {children}

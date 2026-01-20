@@ -1,6 +1,6 @@
 import React from 'react';
 import { LayoutDashboard, Zap, ShieldCheck, Bug } from 'lucide-react';
-import { Button, Badge  } from '../../../../components/UI';
+import { Button, Badge  } from '../../../components/UI';
 
 export const DashboardHeader = ({ user, setSimulatedCrash }) => {
   return (

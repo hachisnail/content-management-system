@@ -1,7 +1,6 @@
-import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { History } from 'lucide-react';
-import { Button, Badge } from '../../../../components/UI';
+import { Button, Badge } from '../../../components/UI';
 
 export const ActivityFeed = ({ logs, canViewAll }) => {
   const navigate = useNavigate();

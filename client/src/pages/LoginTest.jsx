@@ -22,6 +22,11 @@ const LoginTest = () => {
 
   // --- 1. HANDLE SESSION LOGOUT REASONS ---
   useEffect(() => {
+    // If we are navigating from a manual logout, don't show any session messages.
+    if (location.state?.manualLogout) {
+      return;
+    }
+
     const params = new URLSearchParams(location.search);
     const sessionExpired = params.get('session_expired');
     const reason = params.get('reason');
@@ -33,7 +38,7 @@ const LoginTest = () => {
     } else if (reason === 'invalidated') {
       setLocalMessage({ type: 'error', text: 'Your session was invalidated by the server.' });
     }
-  }, [location.search]);
+  }, [location.search, location.state]);
 
   // --- 2. AUTH REDIRECT ---
   useEffect(() => {

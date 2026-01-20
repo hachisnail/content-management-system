@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Dropdown, Button } from "../../../../components/UI";
 import { MoreVertical, Eye, Power, Ban, Lock, CheckCircle } from "lucide-react";
 import { encodeId } from "../../../../utils/idEncoder";
+import { useConfig } from "../../../../context/ConfigContext";
 
 const UserActionsMenu = ({
   user,
@@ -25,9 +26,8 @@ const UserActionsMenu = ({
   // --- ACTIONS AVAILABILITY ---
 
   // Disconnect: Permission + Not Protected
-  const canDisconnect =
-    hasPermission(currentUser, PERMISSIONS.DISCONNECT_USERS) &&
-    !isProtectedTarget;
+  const { can } = useConfig();
+  const canDisconnect = can(PERMISSIONS.DISCONNECT_USERS) && !isProtectedTarget;
 
   // Disable/Enable: Permission + Not Protected + Not Self
   const canManageStatus =

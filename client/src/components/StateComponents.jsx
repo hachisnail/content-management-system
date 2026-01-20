@@ -1,13 +1,10 @@
-import React, { useState } from "react";
+import { useState } from "react";
 import {
   Loader2,
-  AlertCircle,
   RefreshCw,
-  Activity,
   WifiOff,
   ChevronDown,
   ChevronRight,
-  XCircle,
 } from "lucide-react";
 import { Button, Card, Badge } from "./UI";
 

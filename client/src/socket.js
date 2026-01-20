@@ -1,6 +1,6 @@
 // client/src/socket.js
 import { io } from 'socket.io-client';
-import { SOCKET_SERVER_URL } from './config';
+import { SOCKET_SERVER_URL } from './config/config';
 
 // 1. Initialize the raw socket instance
 const socket = io(SOCKET_SERVER_URL, {

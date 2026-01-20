@@ -1,7 +1,7 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ShieldCheck } from 'lucide-react';
-import { Button } from '../../../../components/UI';
+import { Button } from '../../../components/UI';
 
 export const QuickActions = ({ hasPermission, PERMISSIONS, user }) => {
   const navigate = useNavigate();

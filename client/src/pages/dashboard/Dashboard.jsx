@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { useAuth } from "../../../context/AuthContext";
-import { useConfig } from "../../../context/ConfigContext";
-import { useRealtimeResource } from "../../../hooks/useRealtimeResource";
-import api from "../../../api"; 
-import socket from "../../../socket"; 
-import ComponentErrorBoundary from "../../../components/ComponentErrorBoundary";
-import { Alert } from "../../../components/UI";
+import { useAuth } from '../../context/AuthContext';
+import { useConfig } from '../../context/ConfigContext';
+import { useRealtimeResource } from "../../hooks/useRealtimeResource";
+import api from "../../api"; 
+import socket from "../../socket"; 
+import ComponentErrorBoundary from "../../components/ComponentErrorBoundary";
+import { Alert } from "../../components/UI";
 import { Bug } from "lucide-react"; // Import Bug icon
 
 // Sub-components
