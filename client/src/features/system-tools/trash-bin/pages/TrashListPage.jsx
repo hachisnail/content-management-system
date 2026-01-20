@@ -116,9 +116,9 @@ const TrashListPage = () => {
     const { action, item } = confirmState;
     try {
       if (action === "restore") {
-        await api.post(`/trash/${item.resourceType}/${item.id}/restore`);
+        await api.post(`admin/trash/${item.resourceType}/${item.id}/restore`);
       } else if (action === "purge") {
-        await api.delete(`/trash/${item.resourceType}/${item.id}`);
+        await api.delete(`admin/trash/${item.resourceType}/${item.id}`);
       }
     } catch (err) {
       alert("Action failed: " + (err.response?.data?.message || err.message));
