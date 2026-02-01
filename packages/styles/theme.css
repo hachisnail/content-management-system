@@ -1,0 +1,9 @@
+@theme {
+  /* Shared Brand Colors */
+  --color-brand-500: #3b82f6;
+  --color-brand-600: #2563eb;
+
+  /* App Specific Colors */
+  --color-admin-primary: #0f172a; /* Slate-900 for Admin */
+  --color-donor-primary: #10b981; /* Emerald-500 for Donors */
+}

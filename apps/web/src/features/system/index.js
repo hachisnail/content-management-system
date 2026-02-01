@@ -1,0 +1,7 @@
+export {default as FileManager} from './pages/FileManager'
+export {default as AuditLogPage} from './pages/AuditLogPage'
+export {default as AuditLogDetailsPage} from './pages/AuditLogDetailsPage'
+export {default as UserDetailsPage} from './pages/UserDetailsPage'
+export {default as UserDirectoryPage} from './pages/UserDirectoryPage'
+export {default as UserInvitePage} from './pages/UserInvitePage'
+export {default as SettingsPage} from './pages/SettingsPage'
