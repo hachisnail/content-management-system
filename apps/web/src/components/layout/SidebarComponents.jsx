@@ -30,18 +30,11 @@ export const SidebarNavItem = ({
         flex items-center h-12 mx-2 rounded-md transition-all duration-200 group relative
         ${
           isActive 
-            /* [FIX] ROBUST ACTIVE STATE:
-               - bg-base-100: Uses the "paper" color to contrast against the "neutral" sidebar 
-               - text-primary: Applies the brand color to the text/icon
-               - shadow-md: Adds depth to lift it off the background
-            */
             ? "bg-base-100 text-primary shadow-md font-semibold" 
             : "text-neutral-content/70 hover:bg-neutral-content/10 hover:text-neutral-content"
         }
       `}
     >
-
-
       <div className="w-[64px] flex-none flex items-center justify-center">
         <Icon size={20} strokeWidth={isActive ? 2.5 : 2} className="shrink-0" />
       </div>
@@ -58,7 +51,8 @@ export const SidebarNavItem = ({
   );
 };
 
-export const SidebarUserMenu = ({ user, isCollapsed, onLogout }) => {
+// [FIX] Accept isActive prop and style accordingly
+export const SidebarUserMenu = ({ user, isCollapsed, onLogout, isActive }) => {
   return (
     <div className="border-t border-neutral-content/10 bg-black/10 p-2">
       <div
@@ -67,14 +61,26 @@ export const SidebarUserMenu = ({ user, isCollapsed, onLogout }) => {
         <div
           tabIndex={0}
           role="button"
-          className="flex items-center h-12 rounded-lg hover:bg-neutral-content/10 transition-colors cursor-pointer group outline-none w-full"
+          className={`
+            flex items-center h-12 rounded-lg transition-all duration-200 cursor-pointer group outline-none w-full
+            ${isActive 
+              ? "bg-base-100 shadow-md" // Active: Light background + Shadow
+              : "hover:bg-neutral-content/10" // Default: Subtle hover
+            }
+          `}
         >
           <div className="w-[64px] flex-none flex items-center justify-center">
              <Avatar 
                user={user} 
                size="w-8 h-8" 
                textSize="text-xs"
-               className="bg-neutral-content/20 text-neutral-content border rounded-full border-neutral-content/30"
+               className={`
+                 border rounded-full transition-colors
+                 ${isActive 
+                   ? "bg-primary/10 text-primary border-primary/20" 
+                   : "bg-neutral-content/20 text-neutral-content border-neutral-content/30"
+                 }
+               `}
              />
           </div>
 
@@ -84,14 +90,20 @@ export const SidebarUserMenu = ({ user, isCollapsed, onLogout }) => {
             ${isCollapsed ? "w-0 opacity-0" : "w-auto opacity-100 ml-1"}
           `}
           >
-            <p className="text-sm font-semibold text-neutral-content truncate">
+            {/* Conditional text colors */}
+            <p className={`text-sm font-semibold truncate ${isActive ? "text-primary" : "text-neutral-content"}`}>
               {user?.firstName} {user?.lastName}
             </p>
-            <p className="text-xs text-neutral-content/60 truncate">{user?.roles?.[0]}</p>
+            <p className={`text-xs truncate ${isActive ? "text-primary/70" : "text-neutral-content/60"}`}>
+              {user?.roles?.[0]}
+            </p>
           </div>
           
           <div className={`mr-2 ${isCollapsed ? "hidden" : "block"}`}>
-             <MoreVertical size={16} className="text-neutral-content/50" />
+             <MoreVertical 
+               size={16} 
+               className={isActive ? "text-primary/50" : "text-neutral-content/50"} 
+             />
           </div>
         </div>
 
@@ -102,7 +114,7 @@ export const SidebarUserMenu = ({ user, isCollapsed, onLogout }) => {
           ${isCollapsed ? "ml-4 -mb-12" : "mb-2"}
         `}
         >
-          <li><Link to="/settings"><Settings size={16} /> Settings</Link></li>
+          <li><Link to="/settings" className={isActive ? "active" : ""}><Settings size={16} /> Settings</Link></li>
           <div className="divider my-1 border-base-200"></div>
           <li><button onClick={onLogout} className="text-error"><LogOut size={16} /> Sign Out</button></li>
         </ul>

@@ -1,4 +1,4 @@
 .env 
 
-/uploads
+/storage
 node_modules

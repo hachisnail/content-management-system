@@ -30,9 +30,7 @@ if (config.env !== 'test') {
  */
 export const sendInvitationEmail = async (email, token) => {
   // Construct the link (Adjust domain based on environment if needed)
-  const clientUrl = config.env === 'production' 
-    ? 'https://your-production-domain.com' 
-    : 'http://localhost:5173';
+  const clientUrl = config.webOrigin;
     
   const inviteLink = `${clientUrl}/accept-invite?token=${token}`;
 
@@ -43,7 +41,7 @@ export const sendInvitationEmail = async (email, token) => {
       subject: 'You have been invited to the Museum CMS',
       html: `
         <div style="font-family: Arial, sans-serif; padding: 20px;">
-          <h2>Welcome to Museum CMS</h2>
+          <h2>Welcome to Museuo Bulawan CMS</h2>
           <p>You have been invited to join the platform. Please click the button below to set up your account:</p>
           <a href="${inviteLink}" style="background-color: #4F46E5; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block; margin: 20px 0;">Accept Invitation</a>
           <p>Or copy this link: <br> ${inviteLink}</p>
@@ -52,7 +50,7 @@ export const sendInvitationEmail = async (email, token) => {
       `,
     });
 
-    console.log(`📧 Email sent: ${info.messageId}`);
+    console.log(`Email sent: ${info.messageId}`);
     return true;
   } catch (error) {
     console.error('Error sending email:', error);

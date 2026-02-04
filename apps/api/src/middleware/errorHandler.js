@@ -1,7 +1,8 @@
 import multer from 'multer'; 
+import { AppError } from '../core/errors/AppError.js';
 
 export const errorHandler = (err, req, res, next) => {
-  if (process.env.NODE_ENV === 'development' || err.status >= 500) {
+  if (process.env.NODE_ENV === 'development') {
     console.error('Error Stack:', err.stack);
   }
 
@@ -18,13 +19,23 @@ export const errorHandler = (err, req, res, next) => {
     });
   }
 
-  const statusCode = err.status || 500;
-  const message = err.message || 'Internal Server Error';
+  if (err.isOperational) {
+    return res.status(err.statusCode).json({
+      error: true,
+      message: err.message,
+      details: err.details || undefined
+    });
+  }
+
+
+  const statusCode = err.statusCode || err.status || 500;
+  const message = process.env.NODE_ENV === 'development' 
+    ? err.message 
+    : 'Internal Server Error';
 
   res.status(statusCode).json({
     error: true,
     message: message,
-    // Only show stack in dev
     stack: process.env.NODE_ENV === 'development' ? err.stack : undefined,
   });
 };

@@ -1,7 +1,6 @@
 import 'dotenv/config';
 import * as yup from 'yup';
 
-// 1. Define the Schema for your Environment
 const envSchema = yup.object({
   // --- Server ---
   NODE_ENV: yup.string()
@@ -17,16 +16,26 @@ const envSchema = yup.object({
   DB_PORT: yup.number().default(3306),
 
   // --- Security ---
-  JWT_SECRET: yup.string()
-    .min(32, 'JWT_SECRET should be at least 32 chars long')
-    .required('JWT_SECRET is required'),
+  SESSION_SECRET: yup.string()
+    .min(32, 'SESSION_SECRET should be at least 32 chars long')
+    .required('SESSION_SECRET is required'),
 
-    MAX_UPLOAD_SIZE: yup.number().default(5242880),
+  PRESENCE_ADAPTER: yup.string()
+    .oneOf(['memory', 'redis'], 'PRESENCE_ADAPTER must be either "memory" or "redis"')
+    .default('memory'),
+
+    STORAGE_DRIVER: yup.string()
+    .default('memory'), 
+
+  MAX_UPLOAD_SIZE: yup.number().default(5242880),
   
-  // --- CORS (Optional whitelist override) ---
-  CORS_ORIGINS: yup.string().default('http://localhost:5173,http://localhost:3001,http://localhost:4321'),
+  // --- CORS & Independent Origins ---
+  CORS_ORIGINS: yup.string().default(''), 
+  
+  WEB_ORIGIN: yup.string().required('WEB_ORIGIN is required (e.g. http://localhost:5173)'),
+  PORTAL_ORIGIN: yup.string().required('PORTAL_ORIGIN is required (e.g. http://localhost:3001)'),
+  LANDING_ORIGIN: yup.string().required('LANDING_ORIGIN is required (e.g. http://localhost:4321)'),
 
-  // --- Email (SMTP) ---
   SMTP_HOST: yup.string().required('SMTP_HOST is required'),
   SMTP_PORT: yup.number().default(587),
   SMTP_USER: yup.string().required('SMTP_USER is required'),
@@ -34,25 +43,31 @@ const envSchema = yup.object({
   SMTP_FROM: yup.string().default('"Museum CMS" <no-reply@example.com>'),
 });
 
-// 2. Validate process.env
 let envConfig;
 
 try {
-  // strict: true ensures we don't accidentally ignore extra fields if we care, 
-  // but for env vars, we usually just want to check presence.
   envConfig = envSchema.validateSync(process.env, { 
-    abortEarly: false, // Show ALL missing vars, not just the first one
-    stripUnknown: true // Remove system env vars (like PATH) from our config object
+    abortEarly: false, 
+    stripUnknown: true 
   });
 } catch (error) {
   console.error('Invalid Environment Variables:');
   error.inner.forEach((err) => {
     console.error(`   - ${err.path}: ${err.message}`);
   });
-  process.exit(1); // Kill the server immediately
+  process.exit(1); 
 }
 
-// 3. Export the clean config
+const getUniqueOrigins = () => {
+  const extras = envConfig.CORS_ORIGINS.split(',').filter(Boolean);
+  const defaults = [
+    envConfig.WEB_ORIGIN,
+    envConfig.PORTAL_ORIGIN,
+    envConfig.LANDING_ORIGIN
+  ];
+  return [...new Set([...defaults, ...extras])];
+};
+
 export const config = {
   env: envConfig.NODE_ENV,
   port: envConfig.PORT,
@@ -63,8 +78,16 @@ export const config = {
     name: envConfig.DB_NAME,
     port: envConfig.DB_PORT,
   },
-  jwtSecret: envConfig.JWT_SECRET,
-  corsOrigins: envConfig.CORS_ORIGINS.split(','),
+  sessionSecret: envConfig.SESSION_SECRET,
+  presenceAdapter: envConfig.PRESENCE_ADAPTER,
+  storageDriver: envConfig.STORAGE_DRIVER,
+  
+  corsOrigins: getUniqueOrigins(),
+  
+  webOrigin: envConfig.WEB_ORIGIN,
+  portalOrigin: envConfig.PORTAL_ORIGIN,
+  landingOrigin: envConfig.LANDING_ORIGIN,
+  
   maxUploadSize: envConfig.MAX_UPLOAD_SIZE,
   email: {
     host: envConfig.SMTP_HOST,

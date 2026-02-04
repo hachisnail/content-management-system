@@ -1,5 +1,6 @@
-import { useState, useContext, createContext, useCallback } from 'react';
+import { useState, useContext, createContext, useCallback, useEffect } from 'react';
 import * as authApi from '../api/auth.api'; 
+import { AUTH_SESSION_EXPIRED } from '../../../api/client';
 
 const AuthContext = createContext(null);
 
@@ -10,6 +11,38 @@ export const AuthProvider = ({ children }) => {
   });
   
   const [logoutMessage, setLogoutMessage] = useState(null);
+
+  // Define logout first so it can be used in effects
+  const logout = useCallback(async (callApi = true, reason = null) => {
+    try {
+      if (reason) setLogoutMessage(reason);
+      else setLogoutMessage(null);
+
+      // Only call API if we think the session is still valid (voluntary logout)
+      if (callApi) {
+        await authApi.logout();
+      }
+    } catch (err) {
+      console.error("Logout API failed (ignoring):", err);
+    } finally {
+      setUser(null);
+      localStorage.removeItem('user');
+    }
+  }, []);
+
+  const refreshUser = useCallback(async () => {
+    try {
+      const data = await authApi.getMe();
+      if (data && data.user) {
+        setUser(data.user);
+        localStorage.setItem('user', JSON.stringify(data.user));
+      }
+    } catch (error) {
+      // If error is 401, the interceptor will handle the logout.
+      // We just log it here for debugging.
+      console.error("Failed to verify session:", error);
+    }
+  }, []);
 
   const login = async (credentials) => {
     setLogoutMessage(null);
@@ -41,42 +74,6 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const refreshUser = useCallback(async () => {
-    try {
-      const data = await authApi.getMe();
-      if (data && data.user) {
-        setUser(data.user);
-        localStorage.setItem('user', JSON.stringify(data.user));
-      }
-    } catch (error) {
-      console.error("Failed to refresh user profile:", error);
-    }
-  }, []);
-
-  // [FIX] Updated logout to accept a reason string
-  const logout = useCallback(async (callApi = true, reason = null) => {
-    try {
-      // If there is a specific reason (Force Logout/Ban), set the message
-      if (reason) {
-        setLogoutMessage(reason);
-      } else {
-        setLogoutMessage(null); // Clear previous messages on voluntary logout
-      }
-
-      if (callApi) {
-        await authApi.logout();
-      }
-    } catch (err) {
-      console.error("Logout API failed (ignoring):", err);
-    } finally {
-      setUser(null);
-      localStorage.removeItem('user');
-    }
-  }, []);
-
-  // [NEW] Helper to close the alert manually
-  const dismissLogoutMessage = () => setLogoutMessage(null);
-
   const updateProfile = (updates) => {
     setUser(prev => {
       const newUser = { ...prev, ...updates };
@@ -84,6 +81,28 @@ export const AuthProvider = ({ children }) => {
       return newUser;
     });
   };
+
+  const dismissLogoutMessage = () => setLogoutMessage(null);
+
+  // --- EFFECT: Handle Automatic Logout (401 Interceptor) ---
+  useEffect(() => {
+    const handleSessionExpired = () => {
+      if (user) { // Only trigger if we currently think we are logged in
+        logout(false, "Your session has expired. Please log in again.");
+      }
+    };
+
+    window.addEventListener(AUTH_SESSION_EXPIRED, handleSessionExpired);
+    return () => window.removeEventListener(AUTH_SESSION_EXPIRED, handleSessionExpired);
+  }, [user, logout]);
+
+  // --- EFFECT: Verify Session on Mount ---
+  useEffect(() => {
+    // If we have a user in local storage, we MUST verify the HTTP-Only cookie matches.
+    if (user) {
+      refreshUser();
+    }
+  }, []); // Run once on mount
 
   return (
     <AuthContext.Provider value={{ 

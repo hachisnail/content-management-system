@@ -1,19 +1,20 @@
 import sequelize from '../config/db.js';
-import User from './User.js';
-import AuditLog from './AuditLog.js';
-import File from './File.js';
-import FileLink from './FileLink.js';
-import RecycleBin from './RecycleBin.js'; 
-import { attachSocketHooks } from '../utils/socketHooks.js'; 
+import User from './auth/User.js';
+import AuditLog from './system/AuditLog.js';
+import File from './storage/File.js';
+import FileLink from './storage/FileLink.js';
+import Notification from './system/Notification.js';
+import RecycleBin from './system/RecycleBin.js'; 
+import { attachSocketHooks } from '../listeners/socketHooks.js'; 
 
 const models = { 
   User, 
   AuditLog,
   File,       
   FileLink,
-  RecycleBin 
+  RecycleBin,
+  Notification,
 };
-
 
 Object.keys(models).forEach((modelName) => {
   if (models[modelName].associate) {
@@ -21,7 +22,6 @@ Object.keys(models).forEach((modelName) => {
   }
 });
 
-// --- Global Hooks ---
 attachSocketHooks(models);
 
 // --- Sync ---
@@ -34,4 +34,5 @@ export const syncDatabase = async () => {
   }
 };
 
-export { sequelize, User, AuditLog, File, FileLink, RecycleBin };
+// REMOVED: Category from export
+export { sequelize, User, AuditLog, File, FileLink, RecycleBin, Notification };

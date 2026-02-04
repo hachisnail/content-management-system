@@ -4,7 +4,7 @@ import { canModifyUser, ROLES } from "../config/roles.js";
 import { isSingleInstance, RESOURCES } from "../config/resources.js"; 
 import { UserScopes } from "../models/scopes.js"; 
 import { recycleBinService } from "./recycleBinService.js";
-import { socketService } from "./socket.js";
+import { socketService } from "../core/socket/SocketManager.js";
 
 export const userService = {
   // ... (findById, findByEmail, getUsers remain unchanged) ...
@@ -21,7 +21,8 @@ export const userService = {
   async findByEmail(email) {
     const scope = UserScopes.withAvatar();
     if (scope.attributes && Array.isArray(scope.attributes.exclude)) {
-      scope.attributes.exclude = scope.attributes.exclude.filter(field => field !== 'password');
+      // [FIX] Un-hide currentSessionId so authController can detect and invalidate active sessions
+      scope.attributes.exclude = scope.attributes.exclude.filter(field => !['password', 'currentSessionId'].includes(field));
     }
     return User.findOne({ where: { email }, ...scope });
   },
@@ -103,6 +104,27 @@ export const userService = {
     }
 
     return this.findById(targetId);
+  },
+
+  async changePassword(userId, currentPassword, newPassword) {
+    const user = await User.findByPk(userId);
+    if (!user) throw new Error("User not found");
+
+    // 1. Verify current password
+    // Assuming you have a comparePassword utility imported from '../utils/auth.js'
+    const { comparePassword, hashPassword } = await import('../utils/auth.js');
+    
+    const isMatch = await comparePassword(currentPassword, user.password);
+    if (!isMatch) {
+      throw new Error("Incorrect current password");
+    }
+
+    // 2. Hash new password
+    const hashedPassword = await hashPassword(newPassword);
+
+    // 3. Update
+    await user.update({ password: hashedPassword });
+    return true;
   },
 
   async deleteUser(requester, targetId) {

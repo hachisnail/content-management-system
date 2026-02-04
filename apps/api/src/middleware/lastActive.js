@@ -1,18 +1,27 @@
+import { User } from '../models/index.js';
+
 export const updateLastActive = async (req, res, next) => {
-  if (req.isAuthenticated() && req.user) {
+  try {
+    if (!req.user || !req.user.id) return next();
+
     const now = new Date();
     const lastActive = req.user.lastActiveAt ? new Date(req.user.lastActiveAt) : new Date(0);
-    const diffMinutes = (now - lastActive) / 1000 / 60;
+    const timeDiff = now - lastActive; 
+    const FIVE_MINUTES = 5 * 60 * 1000;
 
-    // [FIX] Throttle reduced from 5 mins to 1 min
-    // This provides "fresher" data for the frontend "Last Active" timer
-    // without overloading the DB on every single request.
-    if (diffMinutes >= 1) {
-      // Use update() which triggers the 'afterUpdate' instance hook in socketHooks.js
-      req.user.update({ lastActiveAt: now }).catch(err => {
-          console.warn('Failed to update lastActiveAt', err.message);
-      });
+    if (timeDiff > FIVE_MINUTES) {
+      await User.update(
+        { lastActiveAt: now },
+        { 
+          where: { id: req.user.id }, 
+          silent: true, 
+          hooks: false  
+        } 
+      );
     }
+  } catch (err) {
+    // Non-blocking error handling
+    console.error('Activity track fail:', err.message);
   }
   next();
 };

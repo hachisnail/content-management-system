@@ -3,10 +3,16 @@ import { ROLES, ROLE_HIERARCHY } from "../config/roles.js";
 import { authService } from "../services/authService.js";
 import { userService } from "../services/userService.js";
 import { trackActivity } from "../utils/audit.js";
-import { appEvents, EVENTS } from "../utils/events.js";
+import { appEvents, EVENTS } from "../core/events/EventBus.js";
 import { User } from "../models/index.js";
 
-export const inviteUser = async (req, res) => {
+const throwError = (message, status = 500) => {
+  const error = new Error(message);
+  error.status = status;
+  throw error;
+};
+
+export const inviteUser = async (req, res, next) => {
   try {
     const { email, roles, firstName, lastName } = req.body;
     const requester = req.user;
@@ -17,23 +23,14 @@ export const inviteUser = async (req, res) => {
     const assignedRank = Math.max(...roles.map((r) => ROLE_HIERARCHY[r] || 0));
 
     if (requesterRank < 100 && assignedRank >= 50) {
-      return res
-        .status(403)
-        .json({
-          error: "Access Denied: You cannot invite Admins or Superadmins.",
-        });
+      throwError("Access Denied: You cannot invite Admins or Superadmins.", 403);
     }
 
     if (
       assignedRank >= requesterRank &&
       !requester.roles.includes(ROLES.SUPERADMIN)
     ) {
-      return res
-        .status(403)
-        .json({
-          error:
-            "Access Denied: You cannot assign a role equal to or higher than your own.",
-        });
+      throwError("Access Denied: You cannot assign a role equal to or higher than your own.", 403);
     }
 
     const newUser = await authService.inviteUser({
@@ -45,18 +42,18 @@ export const inviteUser = async (req, res) => {
     trackActivity(req, "INVITE_USER", "users", { invitedEmail: email });
     res.status(201).json({ message: "Invitation sent", userId: newUser.id });
   } catch (error) {
-    const status = error.message === "User already exists" ? 409 : 500;
-    res.status(status).json({ error: error.message });
+    if (error.message === "User already exists") error.status = 409;
+    next(error);
   }
 };
 
-export const completeRegistration = async (req, res) => {
+export const completeRegistration = async (req, res, next) => {
   try {
     const { token, password, confirmPassword, birthDate, contactNumber } =
       req.body;
 
     if (password !== confirmPassword) {
-      return res.status(400).json({ error: "Passwords do not match" });
+      throwError("Passwords do not match", 400);
     }
 
     const user = await authService.completeRegistration(token, {
@@ -65,42 +62,65 @@ export const completeRegistration = async (req, res) => {
       contactNumber,
     });
 
-    req.login(user, (err) => {
-      if (err) throw err;
-      return res.json({
-        message: "Registration complete",
-        user: {
-          id: user.id,
-          email: user.email,
-          firstName: user.firstName,
-          lastName: user.lastName,
-          roles: user.roles,
-        },
-      });
+    req.login(user, async (err) => {
+      if (err) return next(err);
+
+      try {
+        await User.update(
+          {
+            lastLoginAt: new Date(),
+            currentSessionId: req.sessionID,
+            isOnline: true,
+            lastActiveAt: new Date(),
+          },
+          { 
+            where: { id: user.id },
+          }
+        );
+
+        trackActivity(req, "REGISTER_COMPLETE", "auth");
+
+        return res.json({
+          message: "Registration complete",
+          user: {
+            id: user.id,
+            email: user.email,
+            firstName: user.firstName,
+            lastName: user.lastName,
+            roles: user.roles,
+            activityStatus: "online"
+          },
+        });
+      } catch (dbError) {
+        return next(dbError);
+      }
     });
   } catch (error) {
-    const status = error.status || 500;
-    res.status(status).json({ error: error.message });
+    next(error);
   }
 };
 
-export const resendInvitation = async (req, res) => {
+export const resendInvitation = async (req, res, next) => {
   try {
     const { id } = req.params;
     await authService.resendInvitation(id);
     trackActivity(req, "RESEND_INVITE", "users", { userId: id });
     res.json({ message: "Invitation resent successfully" });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    next(error);
   }
 };
 
 export const login = (req, res, next) => {
   passport.authenticate("local", async (err, partialUser, info) => {
     if (err) return next(err);
-    if (!partialUser) return res.status(401).json(info);
+    if (!partialUser) {
+        // Pass 401 to global handler instead of direct json
+        const error = new Error(info ? info.message : "Invalid credentials");
+        error.status = 401;
+        return next(error);
+    }
 
-    // Session Concurrency Check
     if (
       partialUser.currentSessionId &&
       partialUser.currentSessionId !== req.sessionID
@@ -109,8 +129,10 @@ export const login = (req, res, next) => {
         sessionId: partialUser.currentSessionId,
         reason: "You have been logged out because a new login was detected from another device.",
       });
-      // Non-blocking destroy
-      req.sessionStore.destroy(partialUser.currentSessionId, () => {});
+      // Best effort destroy, don't wait/block
+      if (req.sessionStore && req.sessionStore.destroy) {
+          req.sessionStore.destroy(partialUser.currentSessionId, () => {});
+      }
     }
 
     req.logIn(partialUser, async (err) => {
@@ -118,11 +140,7 @@ export const login = (req, res, next) => {
 
       try {
         const [fullUser] = await Promise.all([
-          // 1. Fetch Full User
           userService.findById(partialUser.id),
-          
-          // 2. Update DB Stats
-          // [FIX] Added individualHooks: true so the socket hook fires!
           User.update(
             {
               lastLoginAt: new Date(),
@@ -163,15 +181,13 @@ export const logout = async (req, res, next) => {
         }
       );
 
-      // 2. [FIX] Audit Log the logout BEFORE destroying the session
-      // (req.user is required for trackActivity to know who it is)
       await trackActivity(req, "LOGOUT", "auth");
 
       req.logout((err) => {
         if (err) return next(err);
         req.session.destroy((err) => {
           if (err) return next(err);
-          res.clearCookie('connect.sid');
+          res.clearCookie('sid'); // Match the cookie name in session config
           return res.status(200).json({ message: 'Logged out successfully' });
         });
       });
@@ -182,43 +198,81 @@ export const logout = async (req, res, next) => {
     next(error);
   }
 };
-export const getMe = async (req, res) => {
-  if (!req.user) return res.status(401).json({ error: "Not authenticated" });
+
+export const getMe = async (req, res, next) => {
+  if (!req.user) {
+    const error = new Error("Not authenticated");
+    error.status = 401;
+    return next(error);
+  }
 
   try {
     const user = await userService.findById(req.user.id);
     res.json({ user });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    next(error);
   }
 };
 
-export const forgotPassword = async (req, res) => {
+export const forgotPassword = async (req, res, next) => {
   try {
     await authService.requestPasswordReset(req.body.email);
     res.json({ message: "If that email exists, a reset link has been sent." });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    next(error);
   }
 };
 
-export const resetPassword = async (req, res) => {
+export const resetPassword = async (req, res, next) => {
   try {
     const { token, password, confirmPassword } = req.body;
     if (password !== confirmPassword)
-      return res.status(400).json({ error: "Passwords do not match" });
+      throwError("Passwords do not match", 400);
+
     await authService.resetPassword(token, password);
     res.json({ message: "Password has been reset successfully." });
   } catch (error) {
-    res.status(error.status || 500).json({ error: error.message });
+    next(error);
+  }
+};
+
+export const changePassword = async (req, res, next) => {
+  try {
+    const { currentPassword, newPassword, confirmPassword } = req.body;
+
+    if (newPassword !== confirmPassword) {
+      throwError("New passwords do not match", 400);
+    }
+
+    await userService.changePassword(req.user.id, currentPassword, newPassword);
+    
+    res.json({ message: "Password updated successfully" });
+  } catch (error) {
+    if (error.message === 'Incorrect current password') {
+        error.status = 401;
+    }
+    next(error);
   }
 };
 
 export const onboard = async (req, res, next) => {
   try {
     const user = await authService.onboardSuperadmin(req.body);
-    req.login(user, (err) => {
+    req.login(user, async (err) => {
       if (err) return next(err);
+
+      await User.update(
+        {
+          lastLoginAt: new Date(),
+          currentSessionId: req.sessionID,
+          isOnline: true,
+          lastActiveAt: new Date(),
+        },
+        { 
+          where: { id: user.id },
+        }
+      );
+
       trackActivity(req, "SYSTEM_ONBOARD", "system", { adminId: user.id });
       return res.status(201).json({ message: "System initialized.", user });
     });

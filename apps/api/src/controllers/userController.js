@@ -1,9 +1,12 @@
 import { userService } from '../services/userService.js';
+import { trackActivity } from '../utils/audit.js'; 
 import { buildQuery, formatPaginated } from '../utils/pagination.js';
 
-// ... (getUsers, getMe, getUser, updateUser, deleteUser remain unchanged) ...
 export const getUsers = async (req, res, next) => {
   try {
+    if (req.query.sort_by === 'name') req.query.sort_by = 'firstName';
+    if (req.query.sort_by === 'activity') req.query.sort_by = 'lastActiveAt';
+
     const queryConfig = {
       searchFields: ['firstName', 'lastName', 'email'],
       allowedFilters: ['status', 'roles'],
@@ -43,7 +46,21 @@ export const updateUser = async (req, res, next) => {
     if (updates.isActive !== undefined) {
       updates.status = updates.isActive ? 'active' : 'disabled';
     }
-    const updatedUser = await userService.updateUser(req.user, req.params.id, updates);
+
+    const targetId = (!req.params.id || req.params.id === 'me') 
+      ? req.user.id 
+      : req.params.id;
+
+    const updatedUser = await userService.updateUser(req.user, targetId, updates);
+
+    if (updates.status === 'disabled' || updates.status === 'banned') {
+        trackActivity(req, 'DISABLE_USER', 'users', { targetId, status: updates.status });
+    } else if (updates.status === 'active') {
+        trackActivity(req, 'ENABLE_USER', 'users', { targetId });
+    } else {
+        trackActivity(req, 'UPDATE_USER', 'users', { targetId, fields: Object.keys(updates) });
+    }
+
     res.json({ message: 'User updated successfully', user: updatedUser });
   } catch (error) {
     next(error);
@@ -53,6 +70,9 @@ export const updateUser = async (req, res, next) => {
 export const deleteUser = async (req, res, next) => {
   try {
     await userService.deleteUser(req.user, req.params.id);
+
+    trackActivity(req, 'DELETE_USER', 'users', { targetId: req.params.id });
+
     res.json({ message: 'User deleted successfully' });
   } catch (error) {
     next(error);
@@ -61,8 +81,10 @@ export const deleteUser = async (req, res, next) => {
 
 export const forceDisconnect = async (req, res, next) => {
   try {
-    // [FIX] Pass req.user to service for permission check
     await userService.disconnectUser(req.user, req.params.id);
+
+    trackActivity(req, 'FORCE_DISCONNECT', 'users', { targetId: req.params.id });
+
     res.json({ message: 'User forced to disconnect' });
   } catch (error) {
     next(error);

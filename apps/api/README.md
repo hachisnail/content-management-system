@@ -1,540 +1,231 @@
-
-```markdown
 # Museo Bulawan Management System
+## Architecture & Implementation Guide
 
-## Architecture & Implementation Guide (Extended)
-
-This document is the authoritative technical reference for the Museo Bulawan Management System. It describes not only *what* each part of the system does, but *why* it exists, *how* it interacts with other layers, and the constraints developers must respect when extending the platform.
+This document is the **authoritative technical reference** for the Museo Bulawan Management System. It describes not only **what** each part of the system does, but **why** it exists, **how** it interacts with other layers, and the **constraints developers must respect** when extending the platform.
 
 This guide is intended for:
 
-* Backend developers
-* Security auditors
-* DevOps / deployment engineers
-* Future maintainers of the system
+- Backend developers
+- Security auditors
+- DevOps & deployment engineers
+- Future maintainers of the system
 
 ---
 
 ## 1. Technical Stack
 
 | Layer | Technology | Rationale |
-| :--- | :--- | :--- |
-| Runtime | **Node.js (ESM)** | Native async I/O, strong ecosystem, modern syntax (`import`/`export`). |
+|-------|------------|-----------|
+| Runtime | **Node.js (ESM)** | Native async I/O, strong ecosystem, modern `import / export` syntax. |
 | Framework | **Express.js v5.2.1** | Minimal, predictable middleware model with modern error handling. |
-| Database | **MariaDB (via mysql2) + Sequelize** | Strong relational guarantees with ORM safety and efficient driver. |
-| Auth | **Passport.js (Local + Sessions)** | Secure server-side sessions (no JWT leaks); `connect-session-sequelize` for storage. |
-| Validation | **Yup** | Single source of truth for data contracts. |
-| Realtime | **Socket.io** | Stateful bi-directional channels for live updates. |
-| Files | **Multer + File-Type** | Deep signature checks (magic bytes) to prevent MIME spoofing. |
-| Security | **Helmet, Rate-Limit, bcryptjs** | Hardened headers, request throttling, and secure password hashing. |
+| Database | **MariaDB (mysql2) + Sequelize** | Strong relational guarantees with ORM safety and efficient driver. |
+| Auth | **Passport.js (Local + Sessions)** | Secure server-side sessions using `connect-session-sequelize`. |
+| Validation | **Yup** & **Specification Pattern** | Single source of truth for data contracts and file rules. |
+| Realtime | **Socket.io** | Bi-directional channels for live updates, managed via Core Socket Manager. |
+| Presence | **LRU-Cache (MemoryAdapter)** | Tracks online users; Architecture allows swapping for Redis. |
+| Files | **Multer + File-Type** | Magic-byte validation to prevent MIME spoofing. |
+| Infrastructure | **Factory Pattern** | Storage and Presence use factories for environment-agnostic injection. |
+| Logging | **Winston** | Centralized structured logging with Database transports. |
+| Testing | **Jest** | Unit and integration testing. |
+| Docs | **Swagger / OpenAPI** | Live API documentation. |
 
 ---
 
 ## 2. System Design Philosophy
 
-The system is built around five non-negotiable principles:
+The system is built around **non-negotiable principles**.
 
 ### 2.1 Deterministic Flow
 
-Every request must follow the same predictable path:
-
+Every request follows exactly one path:
 
 ```
-
-Client → Route → Middleware → Controller → Service → Model → DB
-
+Client → Route → Middleware → Controller → Service → (Core/Model) → DB
 ```
 
 No business logic is allowed in:
 
-* Routes
-* Middleware
-* Models
+- Routes
+- Middleware
+- Models
 
-This ensures:
+### 2.2 Core Infrastructure Separation
 
-* Debuggability
-* Testability
-* Auditability
+Technical capabilities ("Plumbing") are strictly separated from Business Logic.
 
----
+- **Services** (`src/services/`) contain business rules (e.g., "User cannot delete their own account").
+- **Core** (`src/core/`) contains technical implementations (e.g., "How to write a file to disk" or "How to emit a socket event").
 
-### 2.2 Single Source of Truth
-
-| Concern | Source |
-| :--- | :--- |
-| Data shape | Yup schemas |
-| Permissions | `config/roles.js` |
-| Auth state | Session store (`sessions` table) |
-| Side effects | Services only |
-| Realtime | `socketHooks.js` only |
-
-There must never be:
-
-* Duplicate validation logic
-* Permission checks in controllers
-* Socket emits outside socketHooks
-
----
+Services **depend on** Core. Core **never** depends on Services.
 
 ### 2.3 Server-Authoritative State
 
-The server is always the final authority for:
+The server is always authoritative for:
 
-* User identity (via Session ID `sid`)
-* Role permissions
-* File access
-* Audit records
-* Realtime events
-
-Clients are considered:
-
-> untrusted input generators
+- User identity (`sid` session cookie)
+- Role permissions
+- File access
+- Audit records
+- Realtime events
 
 ---
 
 ## 3. Layer-by-Layer Architecture
 
+### 3.1 Transport Layer (Routes & Controllers)
+
+- **Routes** (`src/routes/`) map URLs to controllers and attach middleware.
+- **Controllers** (`src/controllers/`) adapt HTTP to services.
+
+They catch errors and pass them to the global error handler via `next(error)`.
+
+### 3.2 Business Logic Layer (Services)
+
+Services are the **heart of the system**. They are flatly organized in `src/services/`.
+
+Key Services:
+
+- **`virtualFileService.js`**: Manages the directory tree structure and folder logic.
+- **`fileRetrievalService.js`**: Handles streaming, metadata reading, and access control for downloads.
+- **`recycleBinService.js`**: Handles soft-deletion, restoration, and snapshotting of relationships.
+
+#### Recycle Bin Snapshot Architecture
+1. **Deletion**: Captures a **JSON snapshot** of critical relations (e.g., FileLinks) before soft-deletion.
+2. **Swap Logic**: If restoring a file into a "Single Instance" slot (like an Avatar), the system automatically moves the *current* occupant to the bin before restoring the old one.
+
+### 3.3 Data Layer (Models)
+
+Models (`src/models/`) define Schema, Relations, and Serialization rules.
+All models override `toJSON` to redact sensitive fields (`password`, `tokens`) automatically.
+
+### 3.4 Core Infrastructure Layer
+
+Located in `src/core/`, this layer handles low-level operations.
+
+| Component | Path | Responsibility |
+|-----------|------|----------------|
+| **Storage** | `core/storage/` | Uses **Factory Pattern**. Exports a singleton `storage` adapter (Local/S3) based on config. |
+| **Events** | `core/events/` | Singleton `EventBus` for decoupling DB hooks from Sockets. |
+| **Socket** | `core/socket/` | `SocketManager` handles connection lifecycles and room joins. |
+| **Logging** | `core/logging/` | Configures Winston and custom Transports (e.g., AuditLog DB write). |
+| **Scheduler** | `core/scheduler/` | Manages Cron jobs (Session cleanup). |
+| **Errors** | `core/errors/` | Defines `AppError` for standardized HTTP operational errors. |
+
 ---
 
-## 3.1 Transport Layer
+## 4. File System Architecture
 
-### (Routes & Controllers)
+The file system is split into **Physical Storage** and **Virtual Organization**.
 
-#### Routes
+### 4.1 Physical Storage (Core)
+Handled by `LocalAdapter` (or future S3Adapter). Files are stored on disk (or cloud) physically. The Service layer does not know *where* files are, it just calls `storage.upload()` or `storage.getStream()`.
 
-Routes are **pure mapping definitions**.
+### 4.2 Virtual Organization (Services)
+- **`FileService`**: Handles the upload transaction, `FileSpecification` validation, and database record creation.
+- **`VirtualFileService`**: Constructs a virtual folder tree based on `FileLink` relationships (`User` -> `Avatar`, etc.).
 
-They may:
+### 4.3 Validation (Specification Pattern)
+Validation logic is encapsulated in `src/specifications/FileSpecification.js`. It enforces:
+- Max file size
+- Allowed MIME types
+- Context-specific rules (e.g., "Avatars must be images")
 
-* Attach middleware
-* Bind controller methods
+---
 
-They must never:
+## 5. Error Handling
 
-* Contain logic
-* Query the database
-* Transform data
+The system uses a unified error handling strategy.
 
-Example (`src/routes/user.js`):
+### 5.1 AppError
+Developers must use the `AppError` class for operational errors:
 
-```js
-router.patch(
-  '/:id', 
-  isAuthenticated, 
-  // Authorization handled inside service or specific middleware
-  userController.updateUser
-);
-
+```javascript
+import { AppError } from '../core/errors/AppError.js';
+if (!user) throw new AppError('User not found', 404);
 ```
 
----
+### 5.2 Global Handler
 
-#### Controllers
+The middleware (`src/middleware/errorHandler.js`) standardizes responses:
 
-Controllers are **I/O adapters**.
-
-Responsibilities:
-
-* Extract request data
-* Call service
-* Format response
-* Forward errors
-
-Controllers must never:
-
-* Call Sequelize directly
-* Emit sockets
-* Perform RBAC logic
-
-Correct pattern (`src/controllers/authController.js`):
-
-```js
-export const completeRegistration = async (req, res) => {
-  try {
-    const { token, password, ...data } = req.body;
-    
-    // Logic delegated to Service
-    const user = await authService.completeRegistration(token, { 
-      password, 
-      ...data 
-    });
-
-    req.login(user, (err) => {
-      if (err) throw err;
-      res.json({ message: 'Registration complete', user });
-    });
-
-  } catch (error) {
-    const status = error.status || 500;
-    res.status(status).json({ error: error.message });
-  }
-};
-
-```
-
----
-
-## 3.2 Business Logic Layer
-
-### (Services)
-
-Services are the **heart of the system**.
-
-They:
-
-* Enforce security invariants
-* Control transactions
-* Trigger side effects
-* Maintain data integrity
-
-A service function should be readable as:
-
-> "This is what the system means when it does X."
-
----
-
-### Example: Secure User Update
-
-Logic from `src/services/userService.js`:
-
-```js
-async updateUser(requester, targetId, updates) {
-    const targetUser = await User.findByPk(targetId);
-    
-    // Security: Prevent lower ranks from modifying higher ranks
-    if (!isSelf && !canModifyUser(requester.roles, targetUser.roles)) {
-       const error = new Error('Access Denied');
-       error.status = 403;
-       throw error;
-    }
-
-    // Security: Only Superadmin can change roles/status
-    if (updates.roles && !isSuperAdmin) {
-        throw new ForbiddenError('Cannot change roles');
-    }
-
-    return await targetUser.update(allowedUpdates);
+```json
+{
+  "error": true,
+  "message": "User not found",
+  "details": { ... } // Optional validation details
 }
-
-```
-
-No controller is allowed to bypass this.
-
----
-
-## 3.3 Data Layer
-
-### (Models)
-
-Models define:
-
-* Schema
-* Relations
-* Hooks
-* Constraints
-
-They must never:
-
-* Know about HTTP
-* Emit events
-* Check permissions
-
----
-
-### Critical Hooks
-
-#### Redaction (`src/models/User.js`)
-
-The system uses an aggressive allow-list approach to sanitization in `toJSON` to ensure sensitive data never leaks to the client.
-
-```js
-User.prototype.toJSON = function () {
-  const values = { ...this.get() };
-
-  // 1. Remove Sensitive Auth Data
-  delete values.password;
-  delete values.invitationToken;
-  delete values.invitationExpiresAt;
-  delete values.resetPasswordToken;
-  delete values.resetPasswordExpires;
-
-  // 2. Remove Internal DB Metadata
-  delete values.deletedAt;
-
-  return values;
-};
-
 ```
 
 ---
 
-## 4. Realtime System Architecture
+## 6. Realtime & Presence
 
-Realtime is treated as a **first-class system bus**.
-
-It is not UI sugar.
-
-It is used for:
-
-* Audit dashboards
-* Admin monitoring
-* Live collaboration
-* Security visibility
+* **Presence**: Managed by `src/core/presence/`. Uses an Adapter pattern (Memory/Redis) to track online user IDs.
+* **Broadcasting**: Database hooks emit events to `EventBus`, which `SocketManager` listens to. This decouples the Database from the WebSocket server.
 
 ---
 
-## 4.1 Socket Lifecycle
+## 7. Security Architecture
 
-```
-HTTP login → Session established (Cookie 'sid') → 
-Socket handshake → Socket inherits session → 
-Authorized channel
+### 7.1 Authentication
 
-```
+* **Stateful sessions** via `connect-session-sequelize`.
+* **Hard invalidation**: Changing password kills all active sessions.
 
-Sockets without valid sessions are rejected.
+### 7.2 RBAC (Role-Based Access Control)
 
----
+* **Middleware**: Broad access checks (e.g., `authorize('readAny', 'files')`).
+* **Services**: Contextual checks (e.g., "Can user X edit file Y?").
 
-## 4.2 Socket Contracts
+### 7.3 File Security
 
-All events must follow this naming scheme:
+Uploads pass a three-layer check:
 
-```
-<resource>:<action>
-
-```
-
-Examples:
-
-* `User:db_update`
-* `File:db_create`
+1. Extension allow-list
+2. MIME type verification
+3. Magic-byte inspection (`file-type`)
 
 ---
 
-## 4.3 Socket Hooks Layer
+## 8. Testing Strategy
 
-Only this file is allowed to emit:
+The project uses **Jest**. Tests mirror the `src/` structure.
 
-```
-api/src/utils/socketHooks.js
+* **Services**: Mock `Core` dependencies (Storage, Socket) and Models.
+* **Controllers**: Mock Services.
 
-```
+Run tests with:
 
-This enforces:
-
-* **Performance:** Only `PUBLIC_MODELS` (User, File, FileLink, Project) emit events to avoid flooding the bus with internal log data.
-* **Centralized monitoring**
-* **Zero duplication**
-
----
-
-## 5. Audit & Activity System
-
-The audit system is **non-optional** and **non-bypassable**.
-
-Every sensitive action:
-
-* Creates an `AuditLog` record
-* Emits a socket event via `trackActivity` middleware or service calls.
-
----
-
-### Audit Pipeline
-
-```
-Action → trackActivity →
-Redaction → DB log →
-emitAuditLog → Socket
-
+```bash
+npm test
 ```
 
 ---
 
-### Redaction Rules
+## 9. API Documentation
 
-Before logging, the system recursively scrubs sensitive keys:
+Swagger (OpenAPI 3.0) is auto-generated.
 
-* `password`
-* `token`
-* `secret`
-* `otp`
-* `resetCode`
-
----
-
-## 6. Security Architecture
+| Item | Location |
+|------|----------|
+| Definition | `src/config/swagger.js` |
+| Annotations | `src/routes/*.js` |
+| UI | `/api/docs` |
 
 ---
 
-## 6.1 Authentication Model
+## 10. Operational Guidelines
 
-The system uses **stateful authentication**.
-
-| Component | Purpose |
-| --- | --- |
-| Passport | Identity verification |
-| Session store | Persistent login via `connect-session-sequelize` |
-| Cookies | Transport only (`httpOnly`, `secure` in prod) |
-
-There is:
-
-* No JWT
-* No token auth
-* No client trust
-
----
-
-## 6.2 Role-Based Access Control
-
-RBAC is **hierarchical**.
-
-Example:
-
-```
-superadmin > admin > curator > staff > guest
-
-```
-
-Higher roles inherit all lower privileges.
-
----
-
-### Enforcement Rule
-
-RBAC is checked:
-
-* In middleware (`authorize`): Broad access (e.g., "Can read Users?")
-* In services: Rank-sensitive logic (e.g., "Can this Admin edit this Superadmin?")
-
-Never in controllers.
-
----
-
-## 6.3 Onboarding Guard
-
-The system can only be initialized once.
-
-```js
-// src/services/authService.js
-const count = await User.count({ paranoid: false });
-if (count > 0) return false; // Onboarding not needed
-
-```
-
-This prevents:
-
-* Re-initialization attacks
-* Privilege resets
-* System hijacking
-
----
-
-## 7. File Security System
-
-Uploads are the highest-risk attack vector.
-
-This system uses **three layers of defense**:
-
----
-
-### 7.1 Extension check
-
-Reject invalid extensions (e.g., `.exe`, `.php`).
-
-### 7.2 MIME check
-
-Verify declared type matching allowed list.
-
-### 7.3 Signature check
-
-Read file headers (magic bytes) using `file-type` to ensure the content matches the extension.
-
-Only if all three pass is the file accepted.
-
----
-
-## 8. Failure Handling & Observability
-
----
-
-## 8.1 Global Error Handler
-
-All errors flow through:
-
-```
-src/middleware/errorHandler.js
-
-```
-
-It:
-
-* Normalizes error shape
-* Hides internal stack traces in production
-* Logs full stack server-side
-
----
-
-## 8.2 Error Taxonomy
-
-| Type | Example |
-| --- | --- |
-| ValidationError | Bad input (Yup failure) |
-| ForbiddenError | RBAC / Hierarchy violation |
-| NotFoundError | Missing entity |
-| ConflictError | Unique key (e.g., Email exists) |
-| SystemError | DB crash |
-
----
-
-## 9. Operational Guidelines
-
----
-
-### 9.1 Deployment Safety
-
-Before production:
+### Production Checklist
 
 * `NODE_ENV=production`
-* HTTPS only (Cookies require `secure: true`)
-* Session store persistent
-* Audit logging enabled
+* `STORAGE_DRIVER` configured (local/s3)
+* `PRESENCE_ADAPTER` configured (memory/redis)
+* HTTPS enabled (`secure` cookies)
 
----
+### Final Rule
 
-### 9.2 Data Integrity Rules
-
-Never:
-
-* Delete without paranoid (soft delete)
-* Update without service
-* Log without redaction
-* Emit without `socketHooks`
-
----
-
-## 10. Mental Model for Contributors
-
-When modifying the system, always ask:
-
-1. Does this violate layer boundaries?
-2. Can this bypass RBAC?
-3. Can this emit sensitive data?
-4. Is this auditable?
-5. Can this be abused if client is malicious?
-
-If any answer is **yes**, the design is wrong.
-
----
-
-## Final Principle (The One That Matters)
-
-> **If a controller can do it, an attacker can fake it.**
+> **If a controller can do it, an attacker can fake it.**  
 > **If a service does it, the system owns it.**
 
-Everything important must live in services.
-
-```
-
-```
+Everything that matters belongs in **services**.`

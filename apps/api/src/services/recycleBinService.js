@@ -8,6 +8,8 @@ import {
 } from "../models/index.js";
 import { Op } from "sequelize";
 import { isSingleInstance } from "../config/resources.js";
+import { ROLES } from "../config/roles.js"; // [NEW] Import ROLES
+import logger from "../core/logging/Logger.js"; // [NEW] Import Logger
 
 const MODEL_MAP = {
   users: User,
@@ -57,7 +59,8 @@ export const recycleBinService = {
 
   /**
    * Moves a resource to the recycle bin.
-   * CAPTURES A SNAPSHOT of relationships to enable restoring even if links are hard-deleted.
+   * NOTE: Does not enforce Role checks (that is done in Controller).
+   * Used internally by other services (e.g., fileService replacement).
    */
   async moveToBin(resource, id, userId = null, externalTransaction = null) {
     const Model = MODEL_MAP[resource];
@@ -79,7 +82,7 @@ export const recycleBinService = {
         item.originalName || item.firstName || item.name || "Unknown Item";
 
       let metadata = {
-        linksBackup: [], // Store full link objects here
+        linksBackup: [],
       };
 
       const cascade = {
@@ -89,37 +92,37 @@ export const recycleBinService = {
 
       // 1. Snapshot & Handle Relationships
       if (resource === "files") {
-        // Snapshot existing links before deletion
         const links = await FileLink.findAll({
           where: { fileId: id },
+          paranoid: false,
           transaction: t,
         });
 
-        metadata.linksBackup = links.map((l) => l.toJSON()); // BACKUP FULL DATA
+        const plainLinks = links.map((l) => l.get({ plain: true }));
+        metadata.linksBackup = plainLinks;
 
         metadata = {
           ...metadata,
           path: item.path,
           size: item.size,
           mimeType: item.mimetype,
-          // Snapshot primary category for quick display
           category: links.length > 0 ? links[0].category : "uncategorized",
           linkedRecordType: links.length > 0 ? links[0].recordType : null,
         };
       } else {
-        // Handle Parent Resource (User)
         const links = await FileLink.findAll({
           where: { recordId: id, recordType: resource },
+          paranoid: false,
           transaction: t,
         });
 
-        metadata.linksBackup = links.map((l) => l.toJSON()); // BACKUP FULL DATA
+        const plainLinks = links.map((l) => l.get({ plain: true }));
+        metadata.linksBackup = plainLinks;
 
         if (links.length > 0) {
           cascade.links = links.map((l) => l.id);
           const fileIds = links.map((link) => link.fileId);
 
-          // Soft delete cascaded files (e.g., Avatars)
           if (fileIds.length > 0) {
             cascade.files = fileIds;
             await File.destroy({
@@ -147,15 +150,19 @@ export const recycleBinService = {
       // 3. Delete Original Item
       await item.destroy({ transaction: t });
 
-      // 4. Cleanup Links (Hard or Soft Delete depending on model)
+      // 4. Cleanup Links
       const linkQuery =
         resource === "files"
           ? { where: { fileId: id }, transaction: t }
           : { where: { recordId: id, recordType: resource }, transaction: t };
 
-      await FileLink.destroy(linkQuery);
+      await FileLink.destroy({
+        ...linkQuery,
+        force: true, 
+      });
 
       if (isLocalTransaction) await t.commit();
+      logger.info(`[RecycleBin] Moved ${resource}:${id} to bin by ${userId}`);
       return true;
     } catch (error) {
       if (isLocalTransaction) await t.rollback();
@@ -164,13 +171,39 @@ export const recycleBinService = {
   },
 
   /**
-   * Restores an item and its relationships from the snapshot.
+   * Restores an item. Enforces RBAC.
+   * @param {string} binId 
+   * @param {Object} user - The full user object requesting restore
    */
-  async restore(binId) {
+  async restore(binId, user) {
+    if (!user || !user.id) throw new Error("User context required for restore");
+
     const binEntry = await RecycleBin.findByPk(binId);
     if (!binEntry) throw new Error("Recycle bin entry not found");
 
-    const { resourceType, resourceId, metadata } = binEntry;
+    // [ACCESS CONTROL]
+    // 1. Owner can restore their own items.
+    // 2. Superadmin can restore anything.
+    // 3. Regular Admins cannot restore others' items.
+    const isOwner = binEntry.deletedBy === user.id;
+    const isSuperAdmin = user.roles.includes(ROLES.SUPERADMIN);
+
+    if (!isOwner && !isSuperAdmin) {
+      logger.warn(`[RecycleBin] Restore denied for user ${user.id} on bin ${binId}`);
+      throw new Error("Access Denied: You can only restore your own items.");
+    }
+
+    let { resourceType, resourceId, metadata } = binEntry;
+
+    if (typeof metadata === "string") {
+      try {
+        metadata = JSON.parse(metadata);
+      } catch (e) {
+        console.error("Failed to parse metadata JSON:", e);
+        metadata = {};
+      }
+    }
+
     const Model = MODEL_MAP[resourceType];
     if (!Model) throw new Error(`Invalid resource type: ${resourceType}`);
 
@@ -181,14 +214,14 @@ export const recycleBinService = {
         paranoid: false,
         transaction: t,
       });
+
       if (item) {
         await item.restore({ transaction: t });
       } else {
-        // If the main item is completely gone, we can't restore relationships
         throw new Error("Original item record is missing permanently.");
       }
 
-      // 2. Restore Cascaded Files (e.g. Avatar File)
+      // 2. Restore Cascaded Files
       if (metadata?.cascade?.files?.length > 0) {
         await File.restore({
           where: { id: { [Op.in]: metadata.cascade.files } },
@@ -200,22 +233,38 @@ export const recycleBinService = {
       const linksToRestore = metadata.linksBackup || [];
 
       for (const linkData of linksToRestore) {
-        // A. Check for Collisions (e.g., User has a new avatar already?)
-        if (isSingleInstance(linkData.recordType, linkData.category)) {
-          // Remove any CURRENT link that conflicts
-          await FileLink.destroy({
+        const isSingle = isSingleInstance(
+          linkData.recordType,
+          linkData.category,
+        );
+
+        if (isSingle) {
+          const conflictingLinks = await FileLink.findAll({
             where: {
               recordId: linkData.recordId,
               recordType: linkData.recordType,
               category: linkData.category,
-              id: { [Op.ne]: linkData.id }, // Don't delete the one we are restoring
+              id: { [Op.ne]: linkData.id },
             },
-            force: true, // Ensure it's gone
             transaction: t,
           });
+
+          for (const conflict of conflictingLinks) {
+            if (conflict.fileId === linkData.fileId) {
+              await conflict.destroy({ transaction: t });
+              continue;
+            }
+
+            try {
+              // Swap logic: Move current active to bin
+              await this.moveToBin("files", conflict.fileId, user.id, t);
+            } catch (err) {
+              console.error(`[RecycleBin] Failed to swap file ${conflict.fileId}:`, err.message);
+              await conflict.destroy({ force: true, transaction: t });
+            }
+          }
         }
 
-        // B. Restore or Recreate
         const existingLink = await FileLink.findByPk(linkData.id, {
           paranoid: false,
           transaction: t,
@@ -226,7 +275,6 @@ export const recycleBinService = {
             await existingLink.restore({ transaction: t });
           }
         } else {
-          // Hard-deleted? Recreate it exactly as it was.
           await FileLink.create(
             {
               id: linkData.id,
@@ -242,10 +290,10 @@ export const recycleBinService = {
         }
       }
 
-      // 4. Clean up Bin
       await binEntry.destroy({ transaction: t });
-
       await t.commit();
+      
+      logger.info(`[RecycleBin] Restored bin ${binId} by ${user.id}`);
       return { message: "Restored successfully" };
     } catch (error) {
       await t.rollback();
@@ -254,9 +302,20 @@ export const recycleBinService = {
   },
 
   /**
-   * Permanently deletes an item, ensuring NO orphaned links or files remain.
+   * Permanently deletes an item. Enforces RBAC.
+   * @param {string} binId 
+   * @param {Object} user - The user object
    */
-  async forceDelete(binId) {
+  async forceDelete(binId, user) {
+    if (!user) throw new Error("User context required");
+
+    // [ACCESS CONTROL]
+    // STRICTLY Superadmin Only. Destructive action.
+    if (!user.roles.includes(ROLES.SUPERADMIN)) {
+        logger.warn(`[RecycleBin] Force delete denied for ${user.id}`);
+        throw new Error("Access Denied: Only Super Admins can permanently delete items.");
+    }
+
     const binEntry = await RecycleBin.findByPk(binId);
     if (!binEntry) throw new Error("Recycle bin entry not found");
 
@@ -267,7 +326,6 @@ export const recycleBinService = {
     const filesToDeleteFromDisk = [];
 
     try {
-      // 1. Force Delete Main Resource
       const item = await Model.findByPk(resourceId, {
         paranoid: false,
         transaction: t,
@@ -279,14 +337,7 @@ export const recycleBinService = {
         await item.destroy({ force: true, transaction: t });
       }
 
-      // 2. Identify & Purge Cascaded Files (e.g. User Avatars)
-      // This prevents "Zombie Files" where the User is gone but their Avatar file remains in DB/Disk.
-      if (
-        metadata &&
-        metadata.cascade &&
-        metadata.cascade.files &&
-        metadata.cascade.files.length > 0
-      ) {
+      if (metadata?.cascade?.files?.length > 0) {
         const cascadedFiles = await File.findAll({
           where: { id: { [Op.in]: metadata.cascade.files } },
           paranoid: false,
@@ -298,7 +349,6 @@ export const recycleBinService = {
           if (f.path) filesToDeleteFromDisk.push(f.path);
         });
 
-        // Permanently remove the file records
         await File.destroy({
           where: { id: { [Op.in]: metadata.cascade.files } },
           force: true,
@@ -306,41 +356,32 @@ export const recycleBinService = {
         });
       }
 
-      // 3. Clean up Links (Orphan Prevention)
-      // If we are deleting a FILE, delete all links pointing TO it.
-      // If we are deleting a USER, delete all links pointing FROM it.
       const linkQuery =
         resourceType === "files"
           ? { where: { fileId: resourceId } }
           : { where: { recordId: resourceId, recordType: resourceType } };
 
-      // Apply force: true to ensure even soft-deleted links are purged
       await FileLink.destroy({
         ...linkQuery,
         force: true,
         transaction: t,
       });
 
-      // 4. Remove Bin Entry
       await binEntry.destroy({ transaction: t });
 
       await t.commit();
+      logger.info(`[RecycleBin] Permanently deleted bin ${binId} by ${user.id}`);
     } catch (error) {
       await t.rollback();
       throw error;
     }
 
-    // 5. Cleanup Disk (Non-blocking / Best Effort)
     if (filesToDeleteFromDisk.length > 0) {
       Promise.allSettled(
         filesToDeleteFromDisk.map(async (path) => {
           try {
             await fs.unlink(path);
-            console.log(
-              `[RecycleBin] Permanently deleted file from disk: ${path}`,
-            );
           } catch (err) {
-            // Ignore if file is already missing
             if (err.code !== "ENOENT") {
               console.warn(
                 `[RecycleBin] Failed to delete file on disk: ${path} - ${err.message}`,

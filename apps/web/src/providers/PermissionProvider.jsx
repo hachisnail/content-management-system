@@ -12,23 +12,29 @@ export const usePermission = () => {
 };
 
 export const PermissionProvider = ({ children }) => {
-  const { user } = useAuth();
-  const [ac, setAc] = useState(new AccessControl()); // Default deny-all
-  const [hierarchy, setHierarchy] = useState({});
+  const { user } = useAuth(); 
+  
+  const [ac, setAc] = useState(new AccessControl()); 
+  const [hierarchy, setHierarchy] = useState({}); // Stores { superadmin: 100, guest: 0 }
   const [rolesConfig, setRolesConfig] = useState({});
+  const [resourcesConfig, setResourcesConfig] = useState({}); 
   const [isLoading, setIsLoading] = useState(true);
 
-  // 1. Sync Rules from Backend on Mount
   useEffect(() => {
+    if (!user) {
+      setIsLoading(false); 
+      return; 
+    }
+
     const fetchConfig = async () => {
+      setIsLoading(true);
       try {
-        // [CRITICAL] Fetch the Single Source of Truth from Backend
         const { data } = await apiClient.get('/config/roles');
         
-        // Hydrate AccessControl with backend grants
         if (data.grants) setAc(new AccessControl(data.grants));
         if (data.ROLE_HIERARCHY) setHierarchy(data.ROLE_HIERARCHY);
         if (data.ROLES) setRolesConfig(data.ROLES);
+        if (data.RESOURCES) setResourcesConfig(data.RESOURCES);
         
       } catch (err) {
         console.error("Failed to sync permissions:", err);
@@ -37,15 +43,12 @@ export const PermissionProvider = ({ children }) => {
       }
     };
 
-    // Only fetch if we have a token (or if your endpoint is public)
     fetchConfig();
-  }, []);
+  }, [user]);
 
-  // 2. "Can I do X on Resource Y?"
   const can = (action, resource) => {
     if (isLoading || !user || !user.roles) return { granted: false };
     
-    // Check if ANY of the user's roles grant permission
     const hasPermission = user.roles.some(role => {
       try {
         return ac.can(role)[action](resource).granted;
@@ -57,25 +60,27 @@ export const PermissionProvider = ({ children }) => {
     return { granted: hasPermission };
   };
 
-  // 3. "Can I manage (edit/delete) this specific user?"
-  // Enforces the Rank Hierarchy (e.g., Admin cannot delete Superadmin)
   const canManageUser = (targetUser) => {
     if (!user || !targetUser) return false;
-    if (user.id === targetUser.id) return false; // Self-management is handled in Settings
+    if (user.id === targetUser.id) return false; 
 
-    // Get numeric ranks from the fetched hierarchy
     const currentRank = Math.max(...(user.roles || []).map(r => hierarchy[r] || 0));
     const targetRank = Math.max(...(targetUser.roles || []).map(r => hierarchy[r] || 0));
 
-    // Superadmin bypass (using the config key, not hardcoded string)
     if (user.roles.includes(rolesConfig.SUPERADMIN)) return true;
 
-    // Strict Rule: You must be STRICTLY higher rank to manage someone
     return currentRank > targetRank;
   };
 
   return (
-    <PermissionContext.Provider value={{ can, canManageUser, rolesConfig, isLoading }}>
+    <PermissionContext.Provider value={{ 
+      can, 
+      canManageUser, 
+      rolesConfig,     
+      resourcesConfig, 
+      hierarchy, 
+      isLoading 
+    }}>
       {children}
     </PermissionContext.Provider>
   );

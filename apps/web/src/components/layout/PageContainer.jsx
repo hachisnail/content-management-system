@@ -8,9 +8,9 @@ export const PageContainer = ({
   className = ""
 }) => {
   return (
-    <div className={`w-full h-full flex flex-col ${className}`}>
+    // [UX FIX] Added 'animate-fade-in' to smooth out component mounting/unmounting
+    <div className={`w-full h-full flex flex-col bg-base-100 rounded-b-2xl border-x border-b border-base-300 p-4 md:p-6 animate-fade-in ${className}`}>
       {/* --- Page Header --- */}
-      {/* Removed Breadcrumbs as they are in the SidebarLayout Header */}
       {(title || actions) && (
         <div className="flex px-4 flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6 shrink-0">
           <div>

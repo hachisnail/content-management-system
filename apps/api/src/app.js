@@ -10,7 +10,7 @@ import { swaggerSpec } from './config/swagger.js';
 import routes from './routes/index.js'; 
 import { errorHandler } from './middleware/errorHandler.js';
 import { corsOptions } from './config/cors.js'; 
-import { updateLastActive } from './middleware/activityTracker.js';
+import { updateLastActive } from './middleware/lastActive.js';
 import passport from 'passport'; 
 import './config/passport.js';   
 import { sessionConfig } from './config/session.js'; 

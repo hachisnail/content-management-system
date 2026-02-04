@@ -3,7 +3,7 @@
 @source "../../../packages/ui";
 
 @plugin "daisyui"{
-   themes: light --default, dark --prefersdark, black, luxury, business, dim;
+   themes: light --default, dark --prefersdark, black, luxury, business, dim, coffee, night, cmyk, nord, pastel, halloween, dracula;
  }
 
  @keyframes fadeIn {

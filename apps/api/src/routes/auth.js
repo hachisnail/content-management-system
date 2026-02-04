@@ -3,6 +3,10 @@ import {
   loginSchema,
   inviteUserSchema,
   completeRegistrationSchema,
+  onboardingSchema,     
+  forgotPasswordSchema, 
+  resetPasswordSchema,
+  changePasswordSchema
 } from "@repo/validation";
 import { validate } from "../middleware/validate.js";
 import * as authController from "../controllers/authController.js";
@@ -64,7 +68,7 @@ router.get("/onboard/status", authController.checkOnboardingStatus);
  *       403:
  *         description: Forbidden - System already has users
  */
-router.post("/onboard", authController.onboard);
+router.post("/onboard", validate(onboardingSchema), authController.onboard);
 
 
 /**
@@ -145,6 +149,57 @@ router.post(
   authorize("createAny", RESOURCES.USERS), // Same permission as creating an invite
   authController.resendInvitation
 );
+
+/**
+ * @swagger
+ * /auth/change-password:
+ *   post:
+ *     summary: Change current user's password
+ *     tags:
+ *       - Auth
+ *     security:
+ *       - cookieAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - currentPassword
+ *               - newPassword
+ *             properties:
+ *               currentPassword:
+ *                 type: string
+ *                 example: oldPass123
+ *               newPassword:
+ *                 type: string
+ *                 example: newSecurePass456
+ *     responses:
+ *       200:
+ *         description: Password changed successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: Password updated
+ *       400:
+ *         description: Invalid current password
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Server error
+ */
+router.post(
+  "/change-password",
+  isAuthenticated,
+  validate(changePasswordSchema),
+  authController.changePassword
+);
+
 
 /**
  * @swagger
@@ -238,7 +293,7 @@ router.get("/me", authController.getMe);
  *       200:
  *         description: Email sent (or simulated)
  */
-router.post('/forgot-password', authController.forgotPassword);
+router.post('/forgot-password',validate(forgotPasswordSchema), authController.forgotPassword);
 
 /**
  * @swagger
@@ -269,6 +324,6 @@ router.post('/forgot-password', authController.forgotPassword);
  *       400:
  *         description: Invalid token
  */
-router.post('/reset-password', authController.resetPassword);
+router.post('/reset-password',validate(resetPasswordSchema), authController.resetPassword);
 
 export default router;

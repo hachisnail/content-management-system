@@ -43,7 +43,7 @@ export const TableContextMenu = ({ item, actions }) => {
             setIsOpen(false); // Close on selection
           }}
         >
-          <div className="py-1 flex flex-col">
+          <div className=" p-1 flex flex-col">
             {React.Children.map(actions(item), (child, i) => (
               <div key={i} className="w-full [&>button]:w-full [&>button]:rounded-none [&>button]:justify-start [&>button]:btn-ghost [&>button]:btn-sm [&>button]:font-normal">
                 {child}

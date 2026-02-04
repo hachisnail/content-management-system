@@ -1,235 +1,197 @@
-/* api/src/services/fileService.js */
-import fs from "fs";
-import { Transaction, Op } from "sequelize";
 import { sequelize, File, FileLink } from "../models/index.js";
-import { verifyFileSignature } from "../config/upload.js";
 import { recycleBinService } from "./recycleBinService.js";
-import { isSingleFile, isValidResource } from "../config/resources.js";
-import { parseRoles } from "../utils/auth.js"; 
+import { FILE_CATEGORIES, CATEGORY_DEFAULTS } from "../config/categories.js";
+import { FileSpecification } from "../specifications/FileSpecification.js";
+import { storage } from "../core/storage/index.js";
+import { AppError } from "../core/errors/AppError.js";
+import logger from "../core/logging/Logger.js";
 
 class FileService {
-  async uploadFile({ fileData, metaData, userId }) {
-    if (metaData.recordType && !isValidResource(metaData.recordType)) {
-      this._cleanupFile(fileData.path);
-      throw new Error(`Invalid recordType: '${metaData.recordType}'`);
-    }
+  constructor() {
+    this.storage = storage;
+  }
 
-    const isValidSig = await verifyFileSignature(fileData.path);
-    if (!isValidSig) {
-      this._cleanupFile(fileData.path);
-      throw new Error("Security Error: File content does not match extension.");
-    }
+  async uploadAndAttach(user, fileData, meta) {
+    const {
+      recordId,
+      recordType,
+      category = "attachment",
+      visibility = "private",
+    } = meta;
 
-    const t = await sequelize.transaction({
-      isolationLevel: Transaction.ISOLATION_LEVELS.SERIALIZABLE,
-    });
+    logger.info(
+      `[FileService] Upload start: ${fileData.originalname} (${fileData.mimetype}) by ${user.id}`,
+    );
+
+    const categoryRules = this._getCategoryRules(category);
+    const spec = new FileSpecification(categoryRules);
 
     try {
-      // [FIX] Ensure allowedRoles is parsed correctly from string/JSON
-      const parsedAllowedRoles = parseRoles(metaData.allowedRoles);
+      spec.isSatisfiedBy(fileData);
+    } catch (err) {
+      logger.warn(`[FileService] Validation failed: ${err.message}`);
+      throw new AppError(err.message, 400);
+    }
 
-      const file = await File.create(
-        {
-          originalName: fileData.originalname,
-          encoding: fileData.encoding,
-          mimetype: fileData.mimetype,
-          size: fileData.size,
-          path: fileData.path,
-          visibility: metaData.visibility === "public" ? "public" : "private",
-          allowedRoles: parsedAllowedRoles, // Store role permissions
-          uploadedBy: userId || null,
-        },
-        { transaction: t },
-      );
+    const storagePath = await this.storage.upload(fileData, category);
 
-      let link = null;
-
-      if (metaData.recordId && metaData.recordType) {
-        const shouldReplace =
-          isSingleFile(metaData.recordType, metaData.category) ||
-          metaData.replaceExisting === "true" ||
-          metaData.replaceExisting === true;
-
-        if (shouldReplace) {
-          const existingLinks = await FileLink.findAll({
-            where: {
-              recordId: metaData.recordId,
-              recordType: metaData.recordType,
-              category: metaData.category || "attachment",
-            },
-            transaction: t,
-          });
-
-          for (const existingLink of existingLinks) {
-            const fileExists = await File.findByPk(existingLink.fileId, { transaction: t });
-            if (fileExists) {
-              await recycleBinService.moveToBin("files", existingLink.fileId, userId, t);
-            } else {
-              await existingLink.destroy({ transaction: t });
-            }
-          }
-        }
-
-        link = await FileLink.create(
+    return await sequelize.transaction(async (t) => {
+      try {
+        const file = await File.create(
           {
-            fileId: file.id,
-            recordId: metaData.recordId,
-            recordType: metaData.recordType,
-            category: metaData.category || "attachment",
-            createdBy: userId || null,
+            originalName: fileData.originalname,
+            encoding: fileData.encoding,
+            mimetype: fileData.mimetype,
+            size: fileData.size,
+            path: storagePath,
+            visibility: visibility,
+            uploadedBy: user.id,
+            categoryId: null,
           },
           { transaction: t },
         );
-      }
 
-      await t.commit();
-      return { file, link };
-    } catch (error) {
-      await t.rollback();
-      this._cleanupFile(fileData.path);
-      throw error;
-    }
+        if (recordId && recordType) {
+          await this._handleLinking(
+            file,
+            recordId,
+            recordType,
+            category,
+            categoryRules,
+            user,
+            t,
+          );
+        }
+
+        logger.info(`[FileService] Upload success. File ID: ${file.id}`);
+        return file;
+      } catch (error) {
+        logger.error(
+          `[FileService] DB Error, cleaning up disk: ${storagePath}`,
+        );
+        await this.storage
+          .delete(storagePath)
+          .catch((err) => console.error("Cleanup failed:", err));
+        throw error;
+      }
+    });
   }
 
-  // [RESTORED] List files for a specific user
-  async getFiles(user, query) {
-    const { search, page = 1, limit = 50, sort_by = 'createdAt', sort_dir = 'DESC' } = query;
-    const where = { uploadedBy: user.id }; 
+  async _handleLinking(file, recordId, recordType, category, rules, user, t) {
+    if (rules.maxInstances === 1) {
+      const existingLink = await FileLink.findOne({
+        where: { recordId, recordType, category },
+        transaction: t,
+      });
 
-    if (search) {
-      where.originalName = { [Op.like]: `%${search}%` };
+      if (existingLink) {
+        logger.info(
+          `[FileService] Collision detected for ${category}. Archiving old file ${existingLink.fileId}`,
+        );
+        await recycleBinService.moveToBin(
+          "files",
+          existingLink.fileId,
+          user.id,
+          t,
+        );
+      }
     }
 
-    const offset = (Math.max(1, page) - 1) * limit;
+    await FileLink.create(
+      {
+        fileId: file.id,
+        recordId,
+        recordType,
+        category,
+        createdBy: user.id,
+      },
+      { transaction: t },
+    );
+  }
 
-    const { count, rows } = await File.findAndCountAll({
-      where,
-      limit: parseInt(limit),
-      offset,
-      order: [[sort_by, sort_dir]]
-    });
+  async deleteFile(user, fileId) {
+    logger.info(`[FileService] Delete request: ${fileId} by ${user.id}`);
+    
+    const file = await File.findByPk(fileId);
+    if (!file) throw new AppError("File not found", 404);
+
+    // Permission Check
+    const isOwner = file.uploadedBy === user.id;
+    const isSuperAdmin = user.roles && user.roles.includes('superadmin');
+
+    if (!isOwner && !isSuperAdmin) {
+      throw new AppError("Access Denied", 403);
+    }
+
+    return await recycleBinService.moveToBin("files", fileId, user.id);
+  }
+
+  async restoreFile(user, binId) {
+    logger.info(`[FileService] Restore request: Bin ID ${binId} by ${user.id}`);
+    return await recycleBinService.restore(binId, user.id);
+  }
+
+  // [FIX] Implemented Update Logic
+  async updateFile(user, fileId, updates) {
+    logger.info(`[FileService] Update request: ${fileId} by ${user.id}`);
+
+    const file = await File.findByPk(fileId);
+    if (!file) throw new AppError("File not found", 404);
+
+    // 1. Permission Check: Owner OR Superadmin
+    const isOwner = file.uploadedBy === user.id;
+    const isSuperAdmin = user.roles && user.roles.includes('superadmin');
+
+    if (!isOwner && !isSuperAdmin) {
+      throw new AppError("Access Denied: You can only modify your own files.", 403);
+    }
+
+    // 2. Prepare Updates
+    const safeUpdates = {};
+    
+    // Handle 'allowedRoles' (The missing piece for Manage Access)
+    if (updates.allowedRoles !== undefined) {
+        safeUpdates.allowedRoles = updates.allowedRoles;
+    }
+
+    // Handle 'visibility'
+    if (updates.visibility) {
+        if (!['public', 'private'].includes(updates.visibility)) {
+            throw new AppError("Invalid visibility option", 400);
+        }
+        safeUpdates.visibility = updates.visibility;
+    }
+
+    // Handle renaming (accepts various inputs from different controllers/frontends)
+    if (updates.originalName) safeUpdates.originalName = updates.originalName;
+    if (updates.name) safeUpdates.originalName = updates.name;
+    if (updates.newName) safeUpdates.originalName = updates.newName;
+
+    // 3. Apply Update
+    if (Object.keys(safeUpdates).length > 0) {
+        await file.update(safeUpdates);
+        logger.info(`[FileService] File ${fileId} updated: ${Object.keys(safeUpdates).join(', ')}`);
+    }
+
+    return file;
+  }
+
+  _getCategoryRules(categoryName) {
+    const config = FILE_CATEGORIES[categoryName];
+
+    if (!config) {
+      return {
+        maxInstances: -1,
+        maxSize: CATEGORY_DEFAULTS.maxSize,
+        allowedMimes: CATEGORY_DEFAULTS.allowedMimes,
+      };
+    }
 
     return {
-      items: rows,
-      meta: {
-        totalItems: count,
-        totalPages: Math.ceil(count / limit),
-        currentPage: parseInt(page)
-      }
+      maxInstances: config.singleInstance ? 1 : -1,
+      maxSize: config.maxSize || CATEGORY_DEFAULTS.maxSize,
+      allowedMimes: config.allowedMimes || CATEGORY_DEFAULTS.allowedMimes,
     };
-  }
-
-  async getFile(user, id) {
-    const file = await File.findByPk(id);
-    if (!file) throw new Error("File not found");
-    
-    // Use the central access logic
-    await this._checkAccess(file, user);
-    
-    return file;
-  }
-
-  async updateFile(user, id, updates) {
-    const file = await File.findByPk(id);
-    if (!file) throw new Error("File not found");
-
-    // Only Uploader or Admin can modify file settings
-    if (file.uploadedBy !== user.id && !user.roles.includes('admin') && !user.roles.includes('superadmin')) {
-        throw new Error("Access Denied: Only the uploader or admin can modify this file.");
-    }
-
-    if (updates.originalName) file.originalName = updates.originalName;
-    if (updates.visibility) file.visibility = updates.visibility;
-    
-    // [NEW] Allow updating roles dynamically
-    if (updates.allowedRoles) {
-        file.allowedRoles = parseRoles(updates.allowedRoles);
-    }
-    
-    await file.save();
-    return file;
-  }
-
-  async deleteFile(user, id) {
-    const file = await File.findByPk(id);
-    if (!file) throw new Error("File not found");
-
-    if (file.uploadedBy !== user.id && !user.roles.includes('admin') && !user.roles.includes('superadmin')) {
-        throw new Error("Access Denied");
-    }
-
-    await recycleBinService.moveToBin('files', id, user.id);
-    return true;
-  }
-
-  /**
-   * [IMPROVED] Robust Permission Logic
-   * Priority: Public > Owner > Admin > Allowed Role > Deny
-   */
-  async processFileAccess(id, user) {
-    const file = await File.findByPk(id);
-    if (!file) throw Object.assign(new Error("File not found"), { status: 404 });
-
-    // 1. Public Access (No Login Required)
-    if (file.visibility === "public") {
-      this._ensureFileOnDisk(file);
-      return file;
-    }
-
-    // 2. Auth Check for Private Files
-    if (!user) {
-      throw Object.assign(new Error("Unauthorized: Login required for private files"), { status: 401 });
-    }
-
-    // 3. Permission Checks
-    try {
-        await this._checkAccess(file, user);
-    } catch (e) {
-        throw Object.assign(new Error("Access Denied"), { status: 403 });
-    }
-
-    this._ensureFileOnDisk(file);
-    return file;
-  }
-
-  // Helper for centralized permission logic
-  async _checkAccess(file, user) {
-    // A. Owner
-    if (file.uploadedBy === user.id) return true;
-
-    // B. SuperAdmin / Admin
-    const isAdmin = user.roles && (user.roles.includes("superadmin") || user.roles.includes("admin"));
-    if (isAdmin) return true;
-    
-    // C. Role-Based Access Delegation
-    // stored roles are in file.allowedRoles (array of strings)
-    const allowedRoles = parseRoles(file.allowedRoles);
-    
-    // Check if user has ANY of the allowed roles
-    const hasRole = allowedRoles.some(r => user.roles.includes(r));
-    
-    if (hasRole) return true;
-
-    throw new Error("Access Denied");
-  }
-
-  _cleanupFile(filePath) {
-    if (filePath && fs.existsSync(filePath)) {
-      try {
-        fs.unlinkSync(filePath);
-      } catch (err) {
-        console.error("Failed to cleanup file:", filePath, err);
-      }
-    }
-  }
-
-  _ensureFileOnDisk(file) {
-    const normalizedPath = file.path.replace(/\\/g, '/');
-    if (!fs.existsSync(normalizedPath)) {
-      const error = new Error("File system error: File missing on disk");
-      error.status = 404;
-      throw error;
-    }
   }
 }
 

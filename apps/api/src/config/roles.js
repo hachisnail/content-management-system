@@ -38,7 +38,7 @@ ac.grant(ROLES.AUDITOR)
   .readAny(RESOURCES.ACCESSIONS)
   .readAny(RESOURCES.ARTICLES)
   .readAny(RESOURCES.APPOINTMENTS)
-  .readAny(RESOURCES.USERS);
+  // 
 
 // 2. Scheduler (Manage Appointments)
 ac.grant(ROLES.SCHEDULER)
@@ -83,13 +83,12 @@ ac.grant(ROLES.DONOR)
 ac.grant(ROLES.ADMIN)
   .extend([ROLES.CURATOR, ROLES.EDITOR, ROLES.SCHEDULER])
   .readAny(RESOURCES.AUDIT_LOGS)
+  .readAny(RESOURCES.USERS)
   .createAny(RESOURCES.USERS)
   .updateAny(RESOURCES.USERS)
   .deleteAny(RESOURCES.USERS)
   .readAny(RESOURCES.SYSTEM)
-  // [FIX] Admin can view the recycle bin
-  .readAny(RESOURCES.RECYCLE_BIN);
-  
+  .readAny(RESOURCES.FILES);
 
 // 7. Super Admin (God Mode)
 ac.grant(ROLES.SUPERADMIN)
@@ -97,11 +96,11 @@ ac.grant(ROLES.SUPERADMIN)
   .createAny(RESOURCES.SYSTEM)
   .updateAny(RESOURCES.SYSTEM)
   .deleteAny(RESOURCES.SYSTEM)
-  .readAny(RESOURCES.FILES)
+  // Files: Full Control
   .createAny(RESOURCES.FILES)
   .updateAny(RESOURCES.FILES)
   .deleteAny(RESOURCES.FILES)
-  // [FIX] Superadmin has full control over recycle bin (Restore/Delete Forever)
+  // Recycle Bin: Full Control (Exclusive)
   .readAny(RESOURCES.RECYCLE_BIN)
   .updateAny(RESOURCES.RECYCLE_BIN)
   .deleteAny(RESOURCES.RECYCLE_BIN);
@@ -122,20 +121,16 @@ export const ROLE_HIERARCHY = {
  * Rule: Requester must have strictly higher rank than Target.
  */
 export const canModifyUser = (requesterRoles, targetRoles) => {
-  // Normalize to arrays
   const rRoles = Array.isArray(requesterRoles) ? requesterRoles : [requesterRoles];
   const tRoles = Array.isArray(targetRoles) ? targetRoles : [targetRoles];
 
-  // Get highest rank for each
   const getRank = (roles) => Math.max(...roles.map(r => ROLE_HIERARCHY[r] || 0));
 
   const rRank = getRank(rRoles);
   const tRank = getRank(tRoles);
 
-  // Superadmin bypass (optional, but good for safety)
   if (rRoles.includes(ROLES.SUPERADMIN)) return true;
 
-  // Strict check: You cannot modify someone with equal or higher rank
   return rRank > tRank;
 };
 export default ac;

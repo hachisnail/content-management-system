@@ -1,22 +1,26 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
+import { useForm } from 'react-hook-form';
+import { yupResolver } from '@hookform/resolvers/yup';
+import { forgotPasswordSchema } from '@repo/validation';
 import { forgotPassword } from '../api/auth.api';
 
 export const ForgotPasswordPage = () => {
-  const [email, setEmail] = useState('');
-  const [status, setStatus] = useState('idle'); // idle, loading, success, error
-  const [message, setMessage] = useState('');
+  const [successMessage, setSuccessMessage] = useState('');
+  const [globalError, setGlobalError] = useState('');
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setStatus('loading');
+  const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm({
+    resolver: yupResolver(forgotPasswordSchema)
+  });
+
+  const onSubmit = async (data) => {
+    setGlobalError('');
+    setSuccessMessage('');
     try {
-      await forgotPassword(email);
-      setStatus('success');
-      setMessage('If an account exists for this email, you will receive a reset link shortly.');
+      await forgotPassword(data.email);
+      setSuccessMessage('If an account exists for this email, you will receive a reset link shortly.');
     } catch (err) {
-      setStatus('error');
-      setMessage(err.response?.data?.error || 'Something went wrong. Please try again.');
+      setGlobalError(err.response?.data?.error || 'Something went wrong. Please try again.');
     }
   };
 
@@ -27,32 +31,29 @@ export const ForgotPasswordPage = () => {
           <h2 className="card-title text-2xl font-bold justify-center">Reset Password</h2>
           <p className="text-center text-sm text-base-content/70">Enter your email to receive a reset link.</p>
 
-          {status === 'success' ? (
-            <div className="alert alert-success mt-4">
-              <span>{message}</span>
+          {successMessage ? (
+            <div className="alert alert-success mt-4 text-sm">
+              <span>{successMessage}</span>
             </div>
           ) : (
-            <form onSubmit={handleSubmit} className="space-y-4 mt-4">
-              {status === 'error' && (
-                <div className="alert alert-error text-sm">{message}</div>
-              )}
+            <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 mt-4">
+              {globalError && <div className="alert alert-error text-sm">{globalError}</div>}
               
               <div className="form-control">
                 <input 
                   type="email" 
                   placeholder="Enter your email" 
-                  className="input input-bordered w-full" 
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required 
+                  className={`input input-bordered w-full ${errors.email ? 'input-error' : ''}`}
+                  {...register('email')}
                 />
+                {errors.email && <span className="text-error text-xs mt-1">{errors.email.message}</span>}
               </div>
               <button 
                 type="submit" 
                 className="btn btn-primary w-full"
-                disabled={status === 'loading'}
+                disabled={isSubmitting}
               >
-                {status === 'loading' && <span className="loading loading-spinner"></span>}
+                {isSubmitting && <span className="loading loading-spinner"></span>}
                 Send Reset Link
               </button>
             </form>

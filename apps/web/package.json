@@ -14,6 +14,7 @@
     "@repo/ui": "*",
     "@repo/utils": "*",
     "@repo/validation": "*",
+    "@svar-ui/react-filemanager": "^2.4.4",
     "@tanstack/react-query": "^5.90.20",
     "accesscontrol": "^2.2.1",
     "axios": "^1.13.2",

@@ -10,18 +10,17 @@ const store = new SequelizeStore({
   tableName: 'sessions', 
 });
 
-// Sync the session table immediately
 store.sync();
 
 export const sessionConfig = session({
-  name: 'sid', // <--- We name the cookie 'sid' here
-  secret: config.jwtSecret,
+  name: 'sid', 
+  secret: config.sessionSecret,
   store: store,
   resave: false,
   saveUninitialized: false,
   cookie: {
-    secure: config.env === 'production', // true required if https
+    secure: config.env === 'production', 
     httpOnly: true,
-    maxAge: 24 * 60 * 60 * 1000 // 1 Day
+    maxAge: 24 * 60 * 60 * 1000 
   }
 });

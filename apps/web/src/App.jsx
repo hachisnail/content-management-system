@@ -4,10 +4,11 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { SocketProvider } from './providers/SocketProvider';
 import { ThemeProvider } from './providers/ThemeProvider';
 import { AuthProvider } from './features/auth/hooks/useAuth';
-import { ProtectedRoute } from './routes/ProtectedRoute';
+import { ProtectedRoute } from './components/common';
 import { SidebarLayout } from './components/layout/SidebarLayout';
 import { PermissionProvider } from './providers/PermissionProvider';
-import { GlobalAuthAlert } from './components/common/GlobalAuthAlert'; // [NEW] Import
+import { GlobalAuthAlert } from './components/common/GlobalAuthAlert';
+import { NotificationProvider } from './providers/NotificationProvider';
 // Config
 import { routeConfig, publicRoutes } from './config/routeConfig'; 
 
@@ -39,6 +40,7 @@ function App() {
         <ThemeProvider>
           <BrowserRouter>
             <SocketProvider>
+              <NotificationProvider>
               <PermissionProvider>
                 
                 {/* [NEW] Global Alert for Forced Logout/Bans */}
@@ -63,6 +65,7 @@ function App() {
                   <Route path="*" element={<NotFoundPage />} />
                 </Routes>
               </PermissionProvider>
+              </NotificationProvider>
             </SocketProvider>
           </BrowserRouter>
         </ThemeProvider>
