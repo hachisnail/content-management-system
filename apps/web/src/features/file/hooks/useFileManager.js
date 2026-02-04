@@ -23,6 +23,18 @@ export const useFileManager = (initialPath = null) => {
   const [groupBy, setGroupBy] = useState("none");
   const [filters, setFilters] = useState({});
 
+  // -- 0. Init Tree (Separated to prevent loops) --
+  // [FIX] This effect handles tree fetching independently of content loading
+  useEffect(() => {
+    if (section === 'library') {
+       fileApi.getTree()
+         .then(res => {
+             setTree(res.data || { children: {} });
+         })
+         .catch(err => console.error("Failed to load directory tree:", err));
+    }
+  }, [section]);
+
   // -- 1. Load Content --
   const loadContent = useCallback(async () => {
     setLoading(true);
@@ -64,11 +76,7 @@ export const useFileManager = (initialPath = null) => {
 
       // Library Logic
       let currentTree = tree;
-      if (Object.keys(tree.children || {}).length === 0) {
-        const treeRes = await fileApi.getTree();
-        currentTree = treeRes.data || { children: {} };
-        setTree(currentTree);
-      }
+      // [FIX] Removed the "if tree empty then fetch" logic block here
 
       let folderItems = [];
       let nodes = currentTree.children || {};
@@ -191,6 +199,13 @@ export const useFileManager = (initialPath = null) => {
          await Promise.all(ids.map(id => apiClient.delete(`/recycle-bin/${id}`)));
       }
       
+      // Refresh logic: Refresh tree if we moved/deleted folders, otherwise just content
+      if (action === 'move' || action === 'delete' || action === 'restore') {
+          if (section === 'library') {
+             const treeRes = await fileApi.getTree();
+             setTree(treeRes.data || { children: {} });
+          }
+      }
       await loadContent();
       return true;
     } catch (err) {
