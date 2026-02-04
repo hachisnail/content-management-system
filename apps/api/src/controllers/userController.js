@@ -1,6 +1,8 @@
 import { userService } from '../services/userService.js';
 import { trackActivity } from '../utils/audit.js'; 
 import { buildQuery, formatPaginated } from '../utils/pagination.js';
+import { notificationService } from '../services/notificationService.js'; 
+import { ROLES } from '../config/roles.js'; 
 
 export const getUsers = async (req, res, next) => {
   try {
@@ -52,6 +54,18 @@ export const updateUser = async (req, res, next) => {
       : req.params.id;
 
     const updatedUser = await userService.updateUser(req.user, targetId, updates);
+
+    if (updates.roles) {
+      await notificationService.broadcastToTargets(
+        { roles: [ROLES.SUPERADMIN] },
+        {
+          title: "User Role Updated",
+          message: `${updatedUser.firstName} ${updatedUser.lastName} roles updated to: ${updates.roles.join(', ')}`,
+          type: "warning",
+          data: { link: `/users/${updatedUser.id}` }
+        }
+      );
+    }
 
     if (updates.status === 'disabled' || updates.status === 'banned') {
         trackActivity(req, 'DISABLE_USER', 'users', { targetId, status: updates.status });

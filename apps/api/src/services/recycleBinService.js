@@ -8,8 +8,9 @@ import {
 } from "../models/index.js";
 import { Op } from "sequelize";
 import { isSingleInstance } from "../config/resources.js";
-import { ROLES } from "../config/roles.js"; // [NEW] Import ROLES
-import logger from "../core/logging/Logger.js"; // [NEW] Import Logger
+import { ROLES } from "../config/roles.js"; 
+import logger from "../core/logging/Logger.js"; 
+import { notificationService } from "./notificationService.js"; // [NEW]
 
 const MODEL_MAP = {
   users: User,
@@ -59,8 +60,6 @@ export const recycleBinService = {
 
   /**
    * Moves a resource to the recycle bin.
-   * NOTE: Does not enforce Role checks (that is done in Controller).
-   * Used internally by other services (e.g., fileService replacement).
    */
   async moveToBin(resource, id, userId = null, externalTransaction = null) {
     const Model = MODEL_MAP[resource];
@@ -147,10 +146,8 @@ export const recycleBinService = {
         { transaction: t },
       );
 
-      // 3. Delete Original Item
       await item.destroy({ transaction: t });
 
-      // 4. Cleanup Links
       const linkQuery =
         resource === "files"
           ? { where: { fileId: id }, transaction: t }
@@ -172,8 +169,6 @@ export const recycleBinService = {
 
   /**
    * Restores an item. Enforces RBAC.
-   * @param {string} binId 
-   * @param {Object} user - The full user object requesting restore
    */
   async restore(binId, user) {
     if (!user || !user.id) throw new Error("User context required for restore");
@@ -181,10 +176,6 @@ export const recycleBinService = {
     const binEntry = await RecycleBin.findByPk(binId);
     if (!binEntry) throw new Error("Recycle bin entry not found");
 
-    // [ACCESS CONTROL]
-    // 1. Owner can restore their own items.
-    // 2. Superadmin can restore anything.
-    // 3. Regular Admins cannot restore others' items.
     const isOwner = binEntry.deletedBy === user.id;
     const isSuperAdmin = user.roles.includes(ROLES.SUPERADMIN);
 
@@ -209,7 +200,6 @@ export const recycleBinService = {
 
     const t = await sequelize.transaction();
     try {
-      // 1. Restore the Main Item
       const item = await Model.findByPk(resourceId, {
         paranoid: false,
         transaction: t,
@@ -221,7 +211,6 @@ export const recycleBinService = {
         throw new Error("Original item record is missing permanently.");
       }
 
-      // 2. Restore Cascaded Files
       if (metadata?.cascade?.files?.length > 0) {
         await File.restore({
           where: { id: { [Op.in]: metadata.cascade.files } },
@@ -229,7 +218,6 @@ export const recycleBinService = {
         });
       }
 
-      // 3. Restore Links (Robust Re-creation)
       const linksToRestore = metadata.linksBackup || [];
 
       for (const linkData of linksToRestore) {
@@ -256,7 +244,6 @@ export const recycleBinService = {
             }
 
             try {
-              // Swap logic: Move current active to bin
               await this.moveToBin("files", conflict.fileId, user.id, t);
             } catch (err) {
               console.error(`[RecycleBin] Failed to swap file ${conflict.fileId}:`, err.message);
@@ -294,6 +281,17 @@ export const recycleBinService = {
       await t.commit();
       
       logger.info(`[RecycleBin] Restored bin ${binId} by ${user.id}`);
+
+      await notificationService.broadcastToTargets(
+        { roles: [ROLES.SUPERADMIN] },
+        {
+          title: "Item Restored",
+          message: `Item #${binId} was restored by ${user.firstName}.`,
+          type: "info",
+          data: { link: `/files` }
+        }
+      );
+
       return { message: "Restored successfully" };
     } catch (error) {
       await t.rollback();
@@ -303,14 +301,10 @@ export const recycleBinService = {
 
   /**
    * Permanently deletes an item. Enforces RBAC.
-   * @param {string} binId 
-   * @param {Object} user - The user object
    */
   async forceDelete(binId, user) {
     if (!user) throw new Error("User context required");
 
-    // [ACCESS CONTROL]
-    // STRICTLY Superadmin Only. Destructive action.
     if (!user.roles.includes(ROLES.SUPERADMIN)) {
         logger.warn(`[RecycleBin] Force delete denied for ${user.id}`);
         throw new Error("Access Denied: Only Super Admins can permanently delete items.");
@@ -371,6 +365,17 @@ export const recycleBinService = {
 
       await t.commit();
       logger.info(`[RecycleBin] Permanently deleted bin ${binId} by ${user.id}`);
+
+      await notificationService.broadcastToTargets(
+        { roles: [ROLES.SUPERADMIN] },
+        {
+          title: "Permanent Deletion",
+          message: `Recycle Bin item #${binId} was permanently deleted by ${user.firstName}.`,
+          type: "error",
+          data: { link: `/audit` }
+        }
+      );
+
     } catch (error) {
       await t.rollback();
       throw error;

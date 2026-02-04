@@ -10,6 +10,7 @@ export const AuthProvider = ({ children }) => {
     return saved ? JSON.parse(saved) : null;
   });
   
+  const [isLoading, setIsLoading] = useState(() => !!localStorage.getItem('user')); 
   const [logoutMessage, setLogoutMessage] = useState(null);
 
   // Define logout first so it can be used in effects
@@ -30,7 +31,7 @@ export const AuthProvider = ({ children }) => {
     }
   }, []);
 
-  const refreshUser = useCallback(async () => {
+const refreshUser = useCallback(async () => {
     try {
       const data = await authApi.getMe();
       if (data && data.user) {
@@ -38,9 +39,13 @@ export const AuthProvider = ({ children }) => {
         localStorage.setItem('user', JSON.stringify(data.user));
       }
     } catch (error) {
-      // If error is 401, the interceptor will handle the logout.
-      // We just log it here for debugging.
       console.error("Failed to verify session:", error);
+      // Optional: If check fails, clear user immediately to prevent flash
+      // setUser(null); 
+      // localStorage.removeItem('user');
+    } finally {
+      // [ADD] Verification done
+      setIsLoading(false); 
     }
   }, []);
 
@@ -98,15 +103,17 @@ export const AuthProvider = ({ children }) => {
 
   // --- EFFECT: Verify Session on Mount ---
   useEffect(() => {
-    // If we have a user in local storage, we MUST verify the HTTP-Only cookie matches.
     if (user) {
       refreshUser();
+    } else {
+      setIsLoading(false); // No user, not loading
     }
-  }, []); // Run once on mount
+  }, []);
 
   return (
     <AuthContext.Provider value={{ 
       user, 
+      isLoading,
       login, 
       onboard, 
       logout, 

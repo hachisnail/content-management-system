@@ -5,6 +5,7 @@ import { userService } from "../services/userService.js";
 import { trackActivity } from "../utils/audit.js";
 import { appEvents, EVENTS } from "../core/events/EventBus.js";
 import { User } from "../models/index.js";
+import { notificationService } from "../services/notificationService.js";
 
 const throwError = (message, status = 500) => {
   const error = new Error(message);
@@ -79,6 +80,15 @@ export const completeRegistration = async (req, res, next) => {
         );
 
         trackActivity(req, "REGISTER_COMPLETE", "auth");
+        await notificationService.broadcastToTargets(
+          { roles: [ROLES.SUPERADMIN] }, 
+          {
+            title: "New User Registered",
+            message: `${user.firstName} ${user.lastName} has joined the system.`,
+            type: "success",
+            data: { link: `/users/${user.id}` }
+          }
+        );
 
         return res.json({
           message: "Registration complete",

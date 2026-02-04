@@ -1,14 +1,17 @@
-import { Navigate, Outlet } from 'react-router-dom';
-import { useAuth } from '../../features/auth/hooks/useAuth'; // Importing directly is safer
+import { useAuth } from "../../features/auth/hooks/useAuth";
+import { Navigate, Outlet } from "react-router-dom";
 
 export const ProtectedRoute = () => {
-  const { user } = useAuth();
+  const { user, isLoading } = useAuth();
 
-  // If user is null, they are not authenticated
-  const isAuthenticated = !!user;
+  if (isLoading) {
+    // Show a full-screen spinner while we verify the cookie
+    return (
+      <div className="h-screen w-full flex items-center justify-center bg-base-100">
+        <span className="loading loading-spinner loading-lg text-primary"></span>
+      </div>
+    );
+  }
 
-  // Since we read from localStorage synchronously, we don't strictly need a loading spinner here 
-  // unless you implement an async "verify token" call in AuthProvider later.
-  
-  return isAuthenticated ? <Outlet /> : <Navigate to="/login" replace />;
+  return user ? <Outlet /> : <Navigate to="/login" replace />;
 };

@@ -23,7 +23,18 @@ app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" } 
 }));
 
-app.use(compression());
+app.use(compression({
+  filter: (req, res) => {
+    if (req.headers['x-no-compression']) {
+      return false;
+    }
+    if (res.getHeader('Content-Type') && /image|video|zip|pdf/i.test(res.getHeader('Content-Type'))) {
+        return false;
+    }
+    return compression.filter(req, res);
+  }
+}));
+
 app.use(cors(corsOptions)); 
 
 app.options(/.*/, cors(corsOptions));

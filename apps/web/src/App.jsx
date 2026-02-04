@@ -40,10 +40,8 @@ function App() {
         <ThemeProvider>
           <BrowserRouter>
             <SocketProvider>
-              <NotificationProvider>
               <PermissionProvider>
                 
-                {/* [NEW] Global Alert for Forced Logout/Bans */}
                 <GlobalAuthAlert /> 
 
                 <Routes>
@@ -56,7 +54,11 @@ function App() {
 
                   {/* --- Protected Routes --- */}
                   <Route element={<ProtectedRoute />}>
-                    <Route element={<SidebarLayout />}>
+                    <Route element={
+                      <NotificationProvider>
+                        <SidebarLayout />
+                      </NotificationProvider>
+                    }>
                       {renderRoutes(routeConfig)}
                     </Route>
                   </Route>
@@ -65,7 +67,6 @@ function App() {
                   <Route path="*" element={<NotFoundPage />} />
                 </Routes>
               </PermissionProvider>
-              </NotificationProvider>
             </SocketProvider>
           </BrowserRouter>
         </ThemeProvider>

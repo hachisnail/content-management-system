@@ -41,11 +41,21 @@ export const deleteFile = async (req, res, next) => {
 
 export const serveFile = async (req, res, next) => {
   try {
-    const { stream, meta } = await fileRetrievalService.getStream(req.user, req.params.id);
+    const variant = req.query.size === 'thumbnail' || req.query.variant === 'thumbnail' ? 'thumbnail' : null;
+
+    const { stream, meta } = await fileRetrievalService.getStream(req.user, req.params.id, variant);
     
     res.setHeader('Content-Type', meta.mimetype);
     res.setHeader('Content-Disposition', `inline; filename="${meta.originalName}"`);
     
+    const isPublic = meta.visibility === 'public';
+    const maxAge = 30 * 24 * 60 * 60; 
+
+    res.setHeader(
+      'Cache-Control', 
+      `${isPublic ? 'public' : 'private'}, max-age=${maxAge}, immutable`
+    );
+
     stream.pipe(res);
   } catch (error) {
     next(error);
