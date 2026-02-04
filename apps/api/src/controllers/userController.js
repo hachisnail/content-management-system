@@ -55,24 +55,43 @@ export const updateUser = async (req, res, next) => {
 
     const updatedUser = await userService.updateUser(req.user, targetId, updates);
 
+    // [FIX] Explicit Role Handling (Audit + Notification)
     if (updates.roles) {
+      const requesterName = `${req.user.firstName} ${req.user.lastName}`;
+      
+      // 1. Enhanced Notification with "Who did it"
       await notificationService.broadcastToTargets(
         { roles: [ROLES.SUPERADMIN] },
         {
-          title: "User Role Updated",
-          message: `${updatedUser.firstName} ${updatedUser.lastName} roles updated to: ${updates.roles.join(', ')}`,
+          title: "User Roles Updated",
+          message: `Roles for ${updatedUser.firstName} ${updatedUser.lastName} were updated to [${updates.roles.join(', ')}] by ${requesterName}.`,
           type: "warning",
           data: { link: `/users/${updatedUser.id}` }
         }
       );
+
+      // 2. Explicit Audit Log
+      // This runs independently of status changes, ensuring the log is never skipped.
+      trackActivity(req, 'UPDATE_ROLES', 'users', { 
+        targetId, 
+        roles: updates.roles,
+        updatedBy: req.user.id
+      });
     }
 
+    // [FIX] Status & Generic Logging
     if (updates.status === 'disabled' || updates.status === 'banned') {
         trackActivity(req, 'DISABLE_USER', 'users', { targetId, status: updates.status });
     } else if (updates.status === 'active') {
         trackActivity(req, 'ENABLE_USER', 'users', { targetId });
     } else {
-        trackActivity(req, 'UPDATE_USER', 'users', { targetId, fields: Object.keys(updates) });
+        // Only log generic UPDATE_USER if fields OTHER than roles/status were changed
+        // (e.g., name, email, phone)
+        const otherFields = Object.keys(updates).filter(key => !['roles', 'status', 'isActive'].includes(key));
+        
+        if (otherFields.length > 0) {
+            trackActivity(req, 'UPDATE_USER', 'users', { targetId, fields: otherFields });
+        }
     }
 
     res.json({ message: 'User updated successfully', user: updatedUser });
