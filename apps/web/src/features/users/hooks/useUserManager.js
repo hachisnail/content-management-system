@@ -37,7 +37,7 @@ export const useUserManager = () => {
     invite: async (data, navigate) => {
         try {
             await apiInviteUser(data);
-            navigate('/system/users');
+            navigate('/users');
         } catch (err) {
             console.error(err);
             alert(err.response?.data?.error || "Failed to send invite");
@@ -73,7 +73,7 @@ export const useUserForm = (existingUser = null) => {
     setLoading(true);
     try {
       await apiInviteUser(data); 
-      navigate('/system/users');
+      navigate('/users');
     } catch (err) {
        alert(err.response?.data?.error || err.message);
     } finally {
