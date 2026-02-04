@@ -13,13 +13,11 @@ export const AuthProvider = ({ children }) => {
   const [isLoading, setIsLoading] = useState(() => !!localStorage.getItem('user')); 
   const [logoutMessage, setLogoutMessage] = useState(null);
 
-  // Define logout first so it can be used in effects
   const logout = useCallback(async (callApi = true, reason = null) => {
     try {
       if (reason) setLogoutMessage(reason);
       else setLogoutMessage(null);
 
-      // Only call API if we think the session is still valid (voluntary logout)
       if (callApi) {
         await authApi.logout();
       }
@@ -31,20 +29,18 @@ export const AuthProvider = ({ children }) => {
     }
   }, []);
 
-const refreshUser = useCallback(async () => {
+  const refreshUser = useCallback(async () => {
     try {
       const data = await authApi.getMe();
       if (data && data.user) {
         setUser(data.user);
         localStorage.setItem('user', JSON.stringify(data.user));
+        return true; 
       }
     } catch (error) {
       console.error("Failed to verify session:", error);
-      // Optional: If check fails, clear user immediately to prevent flash
-      // setUser(null); 
-      // localStorage.removeItem('user');
+      return false; 
     } finally {
-      // [ADD] Verification done
       setIsLoading(false); 
     }
   }, []);
@@ -89,24 +85,31 @@ const refreshUser = useCallback(async () => {
 
   const dismissLogoutMessage = () => setLogoutMessage(null);
 
-  // --- EFFECT: Handle Automatic Logout (401 Interceptor) ---
   useEffect(() => {
-    const handleSessionExpired = () => {
-      if (user) { // Only trigger if we currently think we are logged in
-        logout(false, "Your session has expired. Please log in again.");
+    const handleSessionExpired = async () => {
+
+      if (user) { 
+        console.warn("[Auth] 401 received. Verifying session integrity...");
+        const isAlive = await refreshUser();
+        
+        if (isAlive) {
+          console.info("[Auth] Session verified. Ignoring 401.");
+        } else {
+          console.warn("[Auth] Session dead. Logging out.");
+          logout(false, "Your session has expired. Please log in again.");
+        }
       }
     };
 
     window.addEventListener(AUTH_SESSION_EXPIRED, handleSessionExpired);
     return () => window.removeEventListener(AUTH_SESSION_EXPIRED, handleSessionExpired);
-  }, [user, logout]);
+  }, [user, logout, refreshUser]);
 
-  // --- EFFECT: Verify Session on Mount ---
   useEffect(() => {
     if (user) {
       refreshUser();
     } else {
-      setIsLoading(false); // No user, not loading
+      setIsLoading(false); 
     }
   }, []);
 

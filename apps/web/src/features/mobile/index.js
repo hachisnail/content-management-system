@@ -1,0 +1,1 @@
+export {default as QRScannerPage} from './pages/QRScannerPage'

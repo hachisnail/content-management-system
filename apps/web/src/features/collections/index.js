@@ -1,0 +1,1 @@
+export { CollectionManagerPage } from './pages/CollectionManagerPage';

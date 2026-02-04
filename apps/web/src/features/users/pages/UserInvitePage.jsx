@@ -52,7 +52,6 @@ export const UserInvitePage = () => {
   return (
     <PageContainer 
       title="Invite New User" 
-      breadcrumbs={['System', 'Users', 'Invite']}
       actions={
         <button onClick={() => navigate('/users')} className="btn btn-ghost btn-sm gap-2">
           <ArrowLeft size={16}/> Back
@@ -103,7 +102,7 @@ export const UserInvitePage = () => {
               </div>
 
               <div className="card-actions justify-end mt-4 pt-4 border-t border-base-200">
-                <button type="button" className="btn" onClick={() => navigate('/system/users')}>Cancel</button>
+                <button type="button" className="btn" onClick={() => navigate('/users')}>Cancel</button>
                 <button type="submit" className="btn btn-primary gap-2" disabled={loading}>
                   {loading ? <span className="loading loading-spinner"></span> : <><Send size={16}/> Send Invitation</>}
                 </button>

@@ -1,6 +1,5 @@
 import axios from 'axios';
 
-// Export the event name for consistency
 export const AUTH_SESSION_EXPIRED = 'auth:session_expired';
 
 const apiClient = axios.create({
@@ -14,9 +13,14 @@ const apiClient = axios.create({
 apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
-    // Check for 401 Unauthorized
+    const originalRequest = error.config;
+
     if (error.response && error.response.status === 401) {
-      // Dispatch a custom event that AuthProvider will listen to
+
+      if (originalRequest.url && originalRequest.url.includes('/auth/me')) {
+         return Promise.reject(error);
+      }
+
       window.dispatchEvent(new Event(AUTH_SESSION_EXPIRED));
     }
     return Promise.reject(error);

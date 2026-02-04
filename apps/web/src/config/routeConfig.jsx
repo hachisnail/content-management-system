@@ -5,17 +5,17 @@ import {
   FileText, 
   Settings, 
   Database,
-  // [NEW] Icons for the new features
-  Inbox,       // Acquisition/Intake
-  Archive,     // Accessioning
-  Box,         // Inventory/Artifacts
-  Calendar,    // Appointments
-  Newspaper    // Articles
+  Inbox,       
+  Archive,    
+  Box,        
+  Calendar,    
+  Newspaper,
+  HeartHandshake,
+  Layers
 } from 'lucide-react';
 
 import PermissionGuard from '../components/common/PermissionGuard';
 
-// Auth Pages
 import { 
   LoginPage, 
   ForgotPasswordPage, 
@@ -23,30 +23,19 @@ import {
   CompleteRegistrationPage 
 } from '../features/auth';
 
-// Feature Pages (Existing)
+import { VisitorFeedbackPage } from '../features/feedback';
+
 import { DashboardPage } from '../features/dashboard';
 import { SettingsPage } from '../features/settings'; 
 import { FileManagerPage, RecycleBinPage } from '../features/file'; 
 import { UserDirectoryPage, UserInvitePage, UserDetailsPage } from '../features/users';
 import { AuditLogPage, AuditLogDetailsPage } from '../features/audit';
+import { QRScannerPage } from '../features/mobile';
 
-/* [SCAFFOLDING] 
-  Uncomment these imports once you have created the index.js files 
-  in web/src/features/{featureName} 
-*/
-// import { IntakePage } from '../features/intake';
-// import { AccessionPage } from '../features/accessions';
-// import { InventoryPage } from '../features/inventory';
-// import { AppointmentPage } from '../features/appointments';
-// import { ArticlePage } from '../features/articles';
+import { CollectionManagerPage } from '../features/collections';
+import { AppointmentPage } from '../features/appointments';
+import { ArticlePage } from '../features/articles';
 
-// [TEMPORARY] Placeholder for scaffolding (Remove this when pages are ready)
-const Placeholder = ({ title }) => (
-  <div className="p-8 text-neutral-content/60">
-    <h2 className="text-2xl font-bold">{title}</h2>
-    <p>This module is under construction.</p>
-  </div>
-);
 
 export const publicRoutes = [
   { path: '/', element: <Navigate to="/login" replace /> },
@@ -56,6 +45,19 @@ export const publicRoutes = [
   { path: '/accept-invite', element: <CompleteRegistrationPage /> }
 ];
 
+
+export const standaloneRoutes = [
+  {
+    path: '/scanner',
+    permission: { action: 'updateAny', resource: 'artifacts' },
+    element: (
+       <PermissionGuard action="updateAny" resource="artifacts">
+          <QRScannerPage /> 
+       </PermissionGuard>
+    ),
+  }
+];
+
 export const routeConfig = [
   {
     path: '/dashboard',
@@ -63,77 +65,51 @@ export const routeConfig = [
     nav: { label: 'Dashboard', icon: LayoutDashboard },
   },
   
-  {
-    type: 'section',
-    label: 'Collections',
-    children: [
-      {
-        path: '/acquisitions',
-        // Backend Resource: 'intake'
-        permission: { action: 'readAny', resource: 'intake' },
-        element: (
-          <PermissionGuard action="readAny" resource="intake">
-            {/* <IntakePage /> */}
-            <Placeholder title="Acquisitions (Intake)" />
-          </PermissionGuard>
-        ),
-        nav: { label: 'Acquisitions', icon: Inbox },
-      },
-      {
-        path: '/accessions',
-        // Backend Resource: 'accessions'
-        permission: { action: 'readAny', resource: 'accessions' },
-        element: (
-          <PermissionGuard action="readAny" resource="accessions">
-            {/* <AccessionPage /> */}
-            <Placeholder title="Accessioning" />
-          </PermissionGuard>
-        ),
-        nav: { label: 'Accessioning', icon: Archive },
-      },
-      {
-        path: '/inventory',
-        // Backend Resource: 'artifacts'
-        permission: { action: 'readAny', resource: 'artifacts' },
-        element: (
-          <PermissionGuard action="readAny" resource="artifacts">
-            {/* <InventoryPage /> */}
-            <Placeholder title="Inventory (Artifacts)" />
-          </PermissionGuard>
-        ),
-        nav: { label: 'Inventory', icon: Box },
-      },
-    ]
+
+{
+    path: '/collections',
+    permission: { action: 'readAny', resource: 'artifacts' },
+    element: (
+      <PermissionGuard action="readAny" resource="artifacts">
+        <CollectionManagerPage />
+      </PermissionGuard>
+    ),
+    nav: { label: 'Collections Hub', icon: Layers },
   },
 
-  // --- [NEW] PROGRAMS & CONTENT ---
-  {
+{
     type: 'section',
-    label: 'Programs',
+    label: 'Public Engagement', 
     children: [
       {
         path: '/appointments',
-        // Backend Resource: 'appointments'
         permission: { action: 'readAny', resource: 'appointments' },
         element: (
           <PermissionGuard action="readAny" resource="appointments">
-            {/* <AppointmentPage /> */}
-            <Placeholder title="Appointments" />
+            <AppointmentPage />
           </PermissionGuard>
         ),
-        nav: { label: 'Appointments', icon: Calendar },
+        nav: { label: 'Visits & Appointments', icon: Calendar },
       },
       {
         path: '/articles',
-        // Backend Resource: 'articles'
         permission: { action: 'readAny', resource: 'articles' },
         element: (
           <PermissionGuard action="readAny" resource="articles">
-            {/* <ArticlePage /> */}
-            <Placeholder title="Articles" />
+            <ArticlePage />
           </PermissionGuard>
         ),
-        nav: { label: 'Articles', icon: Newspaper },
+        nav: { label: 'Articles & Research', icon: Newspaper },
+      },
+      {
+        path: '/feedback',
+        permission: { action: 'readAny', resource: 'feedback' }, 
+        element: (
+          <PermissionGuard action="readAny" resource="feedback">
+            <VisitorFeedbackPage />
+          </PermissionGuard>
+        ),
+        nav: { label: 'Visitor Feedback', icon: HeartHandshake },
       },
     ]
   },

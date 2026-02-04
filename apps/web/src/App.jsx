@@ -10,7 +10,7 @@ import { PermissionProvider } from './providers/PermissionProvider';
 import { GlobalAuthAlert } from './components/common/GlobalAuthAlert';
 import { NotificationProvider } from './providers/NotificationProvider';
 // Config
-import { routeConfig, publicRoutes } from './config/routeConfig'; 
+import { routeConfig, publicRoutes, standaloneRoutes } from './config/routeConfig'; 
 
 // Import Error Pages
 import { NotFoundPage, UnauthorizedPage } from './features/auth/pages/ErrorPages';
@@ -54,6 +54,8 @@ function App() {
 
                   {/* --- Protected Routes --- */}
                   <Route element={<ProtectedRoute />}>
+                    {renderRoutes(standaloneRoutes)}
+
                     <Route element={
                       <NotificationProvider>
                         <SidebarLayout />
