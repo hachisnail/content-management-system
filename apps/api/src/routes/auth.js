@@ -326,4 +326,6 @@ router.post('/forgot-password',validate(forgotPasswordSchema), authController.fo
  */
 router.post('/reset-password',validate(resetPasswordSchema), authController.resetPassword);
 
+router.get('/invite/validate', authController.validateInvitation);
+router.get('/reset-password/validate', authController.validateReset);
 export default router;

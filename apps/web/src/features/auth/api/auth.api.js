@@ -49,3 +49,13 @@ export const resendInvite = async (userId) => {
   const response = await client.post(`/auth/invite/${userId}/resend`);
   return response.data;
 };
+
+export const validateInvitationToken = async (token) => {
+  const response = await apiClient.get(`/auth/invite/validate?token=${token}`);
+  return response.data; // Expects { valid: boolean, message?: string, email?: string }
+};
+
+export const validateResetToken = async (token) => {
+  const response = await apiClient.get(`/auth/reset-password/validate?token=${token}`);
+  return response.data; // Expects { valid: boolean, message?: string }
+};

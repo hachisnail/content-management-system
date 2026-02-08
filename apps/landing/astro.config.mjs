@@ -1,10 +1,12 @@
 import { defineConfig } from 'astro/config';
-import tailwindcss from '@tailwindcss/vite'; // FIX: Use the Vite plugin
+import tailwindcss from '@tailwindcss/vite'; 
+
 
 // https://astro.build/config
 export default defineConfig({
-  // Remove integrations: [tailwind()]
+  integrations: [ ],
   vite: {
     plugins: [tailwindcss()],
   },
+  
 });

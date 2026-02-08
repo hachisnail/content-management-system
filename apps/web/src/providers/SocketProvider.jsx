@@ -15,7 +15,6 @@ export const SocketProvider = ({ children }) => {
   const navigate = useNavigate();
 
   useEffect(() => {
-    // 1. If no user, disconnect existing socket and do nothing
     if (!user) {
       if (socket) {
         socket.disconnect();
@@ -24,7 +23,7 @@ export const SocketProvider = ({ children }) => {
       return;
     }
 
-    const socketUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+    const socketUrl = import.meta.env.VITE_API_URL;
     
     // 2. Initialize with autoConnect: FALSE
     const newSocket = io(socketUrl, {

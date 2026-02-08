@@ -7,7 +7,6 @@ import { recycleBinService } from "./recycleBinService.js";
 import { socketService } from "../core/socket/SocketManager.js";
 
 export const userService = {
-  // ... (findById, findByEmail, getUsers remain unchanged) ...
   async findById(id) {
     const user = await User.findByPk(id, UserScopes.withAvatar());
     if (!user) {
@@ -21,7 +20,6 @@ export const userService = {
   async findByEmail(email) {
     const scope = UserScopes.withAvatar();
     if (scope.attributes && Array.isArray(scope.attributes.exclude)) {
-      // [FIX] Un-hide currentSessionId so authController can detect and invalidate active sessions
       scope.attributes.exclude = scope.attributes.exclude.filter(field => !['password', 'currentSessionId'].includes(field));
     }
     return User.findOne({ where: { email }, ...scope });
@@ -88,18 +86,14 @@ export const userService = {
 
     await targetUser.update(allowedUpdates);
 
-    // [FIX] Immediately kick user if they were disabled
     const isDisabled = allowedUpdates.status === 'disabled' || allowedUpdates.status === 'banned' || allowedUpdates.isActive === false;
     
     if (isDisabled && socketService) {
-        // 1. Emit logout event to frontend (triggers red banner & redirect)
         socketService.emitToUser(targetId, 'forced_logout', { 
             message: 'Your account has been disabled by an administrator.' 
         });
-        // 2. Sever the connection
         socketService.disconnectUser(targetId);
         
-        // 3. Ensure session invalidation in DB (optional but safer)
         await targetUser.update({ currentSessionId: null, isOnline: false });
     }
 
@@ -110,8 +104,6 @@ export const userService = {
     const user = await User.findByPk(userId);
     if (!user) throw new Error("User not found");
 
-    // 1. Verify current password
-    // Assuming you have a comparePassword utility imported from '../utils/auth.js'
     const { comparePassword, hashPassword } = await import('../utils/auth.js');
     
     const isMatch = await comparePassword(currentPassword, user.password);
@@ -119,10 +111,8 @@ export const userService = {
       throw new Error("Incorrect current password");
     }
 
-    // 2. Hash new password
     const hashedPassword = await hashPassword(newPassword);
 
-    // 3. Update
     await user.update({ password: hashedPassword });
     return true;
   },
@@ -139,7 +129,6 @@ export const userService = {
         throw Object.assign(new Error("Access Denied: Insufficient permissions"), { status: 403 });
     }
 
-    // [FIX] Immediately kick user before soft-delete
     if (socketService) {
         socketService.emitToUser(targetId, 'forced_logout', { 
             message: 'Your account has been deleted.' 
@@ -149,7 +138,6 @@ export const userService = {
 
     await recycleBinService.moveToBin(RESOURCES.USERS, targetId, requester.id);
     
-    // Ensure offline status (since Soft Delete might hide them from Presence updates)
     await targetUser.update({ currentSessionId: null, isOnline: false });
     
     return true;

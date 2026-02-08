@@ -19,12 +19,15 @@ const envSchema = yup.object({
   SESSION_SECRET: yup.string()
     .min(32, 'SESSION_SECRET should be at least 32 chars long')
     .required('SESSION_SECRET is required'),
+  
+  BCRYPT_SALT_ROUNDS: yup.number().default(10),
+  SECURITY_PEPPER: yup.string().default('default-secret-pepper-change-me-in-prod'),
 
   PRESENCE_ADAPTER: yup.string()
     .oneOf(['memory', 'redis'], 'PRESENCE_ADAPTER must be either "memory" or "redis"')
     .default('memory'),
 
-    STORAGE_DRIVER: yup.string()
+  STORAGE_DRIVER: yup.string()
     .default('memory'), 
 
   MAX_UPLOAD_SIZE: yup.number().default(5242880),
@@ -79,6 +82,10 @@ export const config = {
     port: envConfig.DB_PORT,
   },
   sessionSecret: envConfig.SESSION_SECRET,
+  
+  bcryptSaltRounds: envConfig.BCRYPT_SALT_ROUNDS,
+  securityPepper: envConfig.SECURITY_PEPPER,
+
   presenceAdapter: envConfig.PRESENCE_ADAPTER,
   storageDriver: envConfig.STORAGE_DRIVER,
   

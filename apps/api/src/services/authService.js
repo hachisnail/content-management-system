@@ -1,14 +1,45 @@
 import crypto from 'crypto';
 import { User } from '../models/index.js';
-import { hashPassword } from '../utils/auth.js';
+import { hashPassword, hashToken } from '../utils/auth.js';
 import { sendInvitationEmail } from '../config/email.js';
 import { Op } from 'sequelize';
 import { ROLES } from '../config/roles.js';
-import { AppError } from '../core/errors/AppError.js'; // [IMPORT]
+import { AppError } from '../core/errors/AppError.js'; 
+import { sendEmail } from '../config/email.js';
+import { config } from '../config/env.js';
 
 class AuthService {
+  async validateInvitationToken(token) {
+    const hashedToken = hashToken(token);
+    const user = await User.findOne({ 
+      where: { 
+        invitationToken: hashedToken, 
+        invitationExpiresAt: { [Op.gt]: new Date() } 
+      },
+      attributes: ['id', 'email', 'firstName', 'lastName'] // Return basic info for UI context
+    });
 
-  
+    if (!user) {
+      throw new AppError('Invitation link is invalid or has expired.', 400);
+    }
+    return user;
+  }
+
+  async validateResetToken(token) {
+    const hashedToken = hashToken(token);
+    const user = await User.findOne({
+      where: {
+        resetPasswordToken: hashedToken,
+        resetPasswordExpires: { [Op.gt]: new Date() }
+      },
+      attributes: ['id', 'email']
+    });
+
+    if (!user) {
+      throw new AppError('Password reset link is invalid or has expired.', 400);
+    }
+    return true; 
+  }
 
   async isOnboardingNeeded() {
     const userCount = await User.count({ paranoid: false }); 
@@ -43,6 +74,8 @@ class AuthService {
     }
 
     const token = crypto.randomBytes(32).toString('hex');
+    const hashedToken = hashToken(token); 
+
     const placeholderPassword = crypto.randomBytes(16).toString('hex');
     const hashedPassword = await hashPassword(placeholderPassword);
     const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000);
@@ -54,11 +87,11 @@ class AuthService {
       firstName,
       lastName,
       status: 'pending',
-      invitationToken: token,
+      invitationToken: hashedToken, 
       invitationExpiresAt: expiresAt,
     });
 
-    await sendInvitationEmail(email, token);
+    await sendInvitationEmail(email, token); 
     return newUser;
   }
 
@@ -71,21 +104,24 @@ class AuthService {
     }
 
     const token = crypto.randomBytes(32).toString('hex');
+    const hashedToken = hashToken(token);
     const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000);
 
     await user.update({
-      invitationToken: token,
+      invitationToken: hashedToken,
       invitationExpiresAt: expiresAt
     });
 
-    await sendInvitationEmail(user.email, token);
+    await sendInvitationEmail(user.email, token); 
     return true;
   }
 
   async completeRegistration(token, { password, birthDate, contactNumber }) {
+    const hashedToken = hashToken(token); 
+
     const user = await User.findOne({ 
       where: { 
-        invitationToken: token,
+        invitationToken: hashedToken, 
         invitationExpiresAt: { [Op.gt]: new Date() } 
       } 
     });
@@ -114,21 +150,41 @@ class AuthService {
     if (!user) return; 
 
     const token = crypto.randomBytes(32).toString('hex');
+    const hashedToken = hashToken(token);
     const expiresAt = new Date(Date.now() + 60 * 60 * 1000); 
 
     await user.update({
-      resetPasswordToken: token, 
+      resetPasswordToken: hashedToken, 
       resetPasswordExpires: expiresAt
     });
 
-    const clientUrl = process.env.CLIENT_URL || 'http://localhost:5173';
-    console.log(`[MOCK EMAIL] Password Reset Link: ${clientUrl}/auth/reset-password?token=${token}`);
+    const clientUrl = config.webOrigin;
+    const resetLink = `${clientUrl}/reset-password?token=${token}`; 
+    console.log(`[MOCK EMAIL] Password Reset Link: ${clientUrl}/reset-password?token=${token}`);
+
+    await sendEmail({
+    to: email,
+    subject: 'Reset your Museo Bulawan password',
+    html: `
+      <div style="font-family: Arial">
+        <h3>Password Reset Request</h3>
+        <p>Click the link below to reset your password:</p>
+        <a href="${resetLink}"
+           style="background:#4F46E5;color:white;padding:10px 16px;border-radius:5px;text-decoration:none">
+           Reset Password
+        </a>
+        <p>If you did not request this, you can safely ignore this email.</p>
+      </div>
+    `,
+  });
   }
 
   async resetPassword(token, newPassword) {
+    const hashedToken = hashToken(token); 
+
     const user = await User.findOne({
       where: {
-        resetPasswordToken: token,
+        resetPasswordToken: hashedToken, 
         resetPasswordExpires: { [Op.gt]: new Date() }
       }
     });

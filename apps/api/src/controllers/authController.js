@@ -125,7 +125,6 @@ export const login = (req, res, next) => {
   passport.authenticate("local", async (err, partialUser, info) => {
     if (err) return next(err);
     if (!partialUser) {
-        // Pass 401 to global handler instead of direct json
         const error = new Error(info ? info.message : "Invalid credentials");
         error.status = 401;
         return next(error);
@@ -139,7 +138,6 @@ export const login = (req, res, next) => {
         sessionId: partialUser.currentSessionId,
         reason: "You have been logged out because a new login was detected from another device.",
       });
-      // Best effort destroy, don't wait/block
       if (req.sessionStore && req.sessionStore.destroy) {
           req.sessionStore.destroy(partialUser.currentSessionId, () => {});
       }
@@ -296,6 +294,37 @@ export const checkOnboardingStatus = async (req, res, next) => {
     const needed = await authService.isOnboardingNeeded();
     res.json({ onboardingNeeded: needed });
   } catch (error) {
+    next(error);
+  }
+};
+
+export const validateInvitation = async (req, res, next) => {
+  try {
+    const { token } = req.query; // Expect ?token=...
+    if (!token) return res.status(400).json({ error: "Token is required" });
+    
+    const user = await authService.validateInvitationToken(token);
+    res.json({ valid: true, email: user.email, name: `${user.firstName} ${user.lastName}` });
+  } catch (error) {
+    // Return 200 with valid: false to handle gracefully on frontend
+    if (error.statusCode === 400) {
+      return res.status(200).json({ valid: false, message: error.message });
+    }
+    next(error);
+  }
+};
+
+export const validateReset = async (req, res, next) => {
+  try {
+    const { token } = req.query;
+    if (!token) return res.status(400).json({ error: "Token is required" });
+
+    await authService.validateResetToken(token);
+    res.json({ valid: true });
+  } catch (error) {
+    if (error.statusCode === 400) {
+      return res.status(200).json({ valid: false, message: error.message });
+    }
     next(error);
   }
 };

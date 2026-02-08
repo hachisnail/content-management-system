@@ -20,7 +20,21 @@ const app = express();
 
 app.set('trust proxy', 1);
 app.use(helmet({
-  crossOriginResourcePolicy: { policy: "cross-origin" } 
+  crossOriginResourcePolicy: { policy: "cross-origin" },
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'"], 
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: [
+        "'self'", 
+        "data:", 
+        "blob:", 
+        "http://localhost:3000", 
+        "http://127.0.0.1:3000"  
+      ],
+    },
+  },
 }));
 
 app.use(compression({
