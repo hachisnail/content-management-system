@@ -13,7 +13,7 @@ dist-ssr
 *.local
 .env
 
-ObjectEntryLifecycle.md
+# ObjectEntryLifecycle.md
 
 # Editor directories and files
 .vscode/*
