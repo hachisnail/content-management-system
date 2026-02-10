@@ -10,8 +10,8 @@
       default-src 'self'; 
       script-src 'self' 'unsafe-inline'; 
       style-src 'self' 'unsafe-inline'; 
-      img-src 'self' data: blob: %VITE_API_URL%; 
-      connect-src 'self' %VITE_API_URL% %VITE_WS_URL%;
+      img-src 'self' data: blob: __VITE_API_URL__; 
+      connect-src 'self' __VITE_API_URL__ __VITE_WS_URL__;
     " 
   />
   

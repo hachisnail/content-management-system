@@ -41,20 +41,18 @@ export const deleteFile = async (req, res, next) => {
 
 export const serveFile = async (req, res, next) => {
   try {
-    const variant = req.query.size === 'thumbnail' || req.query.variant === 'thumbnail' ? 'thumbnail' : null;
-
+    const variant = req.query.size === 'thumbnail' ? 'thumbnail' : null;
     const { stream, meta } = await fileRetrievalService.getStream(req.user, req.params.id, variant);
-    
-    res.setHeader('Content-Type', meta.mimetype);
-    res.setHeader('Content-Disposition', `inline; filename="${meta.originalName}"`);
-    
-    const isPublic = meta.visibility === 'public';
-    const maxAge = 30 * 24 * 60 * 60; 
 
-    res.setHeader(
-      'Cache-Control', 
-      `${isPublic ? 'public' : 'private'}, max-age=${maxAge}, immutable`
-    );
+    const etag = `W/"${meta.updatedAt.getTime()}"`;
+    
+    if (req.headers['if-none-match'] === etag) {
+      return res.status(304).end();
+    }
+
+    res.setHeader('Content-Type', meta.mimetype);
+    res.setHeader('ETag', etag);
+    res.setHeader('Cache-Control', `${meta.visibility === 'public' ? 'public' : 'private'}, max-age=3600`);
 
     stream.pipe(res);
   } catch (error) {
