@@ -14,6 +14,7 @@ import { updateLastActive } from './middleware/lastActive.js';
 import passport from 'passport'; 
 import './config/passport.js';   
 import { sessionConfig } from './config/session.js'; 
+import { config } from './config/env.js';
 
 const app = express();
 
@@ -30,8 +31,10 @@ app.use(helmet({
         "'self'", 
         "data:", 
         "blob:", 
-        "http://localhost:3000", 
-        "http://127.0.0.1:3000"  
+        config.landingOrigin,
+        config.webOrigin,
+        config.portalOrigin,
+        ...config.corsOrigins
       ],
     },
   },
@@ -62,7 +65,7 @@ app.use(passport.session());
 
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, 
-  max: 400, 
+  max: 300, 
   message: 'Too many requests from this IP, please try again later.'
 });
 

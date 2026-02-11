@@ -1,0 +1,32 @@
+---
+import Layout from "../layouts/Layout.astro";
+---
+<Layout>
+  <section class="py-24 px-6 container mx-auto">
+    <div class="grid md:grid-cols-2 gap-16 items-center">
+      
+      <div>
+        <span class="text-museum-gold uppercase tracking-widest text-sm">Our Mission</span>
+        <h1 class="font-serif text-5xl text-white mt-4 mb-8 leading-tight">Preserving the <br/> Bicolano Legacy</h1>
+        <div class="space-y-6 text-gray-400 text-lg leading-relaxed">
+          <p>
+            Museo Bulawan serves as the primary repository of Camarines Norte's rich cultural heritage. Established to protect the province's historical artifacts, it stands as a testament to the resilience and artistry of the Bicolano people.
+          </p>
+          <p>
+            From the gold-rich history of Paracale to the agricultural traditions of the lowlands, our collections bridge the gap between the pre-colonial past and the vibrant present.
+          </p>
+        </div>
+      </div>
+
+      <div class="relative h-[600px] border border-white/10 p-4">
+        <div class="absolute inset-0 bg-museum-gold/5 transform translate-x-4 translate-y-4 -z-10"></div>
+        <img 
+          src="https://images.unsplash.com/photo-1547296017-978c31e1c124?q=80&w=1470&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D" 
+          alt="Museum Interior" 
+          class="w-full h-full object-cover grayscale hover:grayscale-0 transition-all duration-700"
+        />
+      </div>
+
+    </div>
+  </section>
+</Layout>

@@ -1,0 +1,164 @@
+---
+import Layout from "../../layouts/Layout.astro";
+import { getArticles } from "../../data/store";
+
+// 1. Generate Static Paths
+export function getStaticPaths() {
+  const articles = getArticles();
+  return articles.map(article => ({
+    params: { id: article.id },
+    props: { article },
+  }));
+}
+
+// 2. Get Data
+const { article } = Astro.props;
+
+// 3. Logic for "Related Articles"
+const allArticles = getArticles();
+const relatedArticles = allArticles
+  .filter(a => a.id !== article.id)
+  .slice(0, 2);
+---
+
+<Layout>
+  <div class="fixed top-20 left-0 h-1 bg-museum-gold z-40 w-full scale-x-0 origin-left animate-scroll-progress"></div>
+
+  <article>
+    <header class="relative h-[60vh] md:h-[70vh] w-full overflow-hidden">
+      <div class="absolute inset-0 bg-black">
+        <img 
+          src={`${article.image}`} 
+          class="w-full h-full object-cover opacity-60 animate-slow-zoom"
+          alt={article.title}
+        />
+        <div class="absolute inset-0 bg-gradient-to-t from-[#0a0a0a] via-[#0a0a0a]/50 to-transparent"></div>
+      </div>
+      
+      <div class="relative z-10 container mx-auto px-6 h-full flex flex-col justify-end pb-20">
+        <div class="max-w-4xl animate-fade-in-up">
+          <div class="flex items-center gap-4 mb-6 text-museum-gold text-xs md:text-sm uppercase tracking-[0.2em] font-bold">
+            <span>{article.date}</span>
+            <span class="w-12 h-px bg-museum-gold"></span>
+            <span>{article.category}</span>
+          </div>
+          <h1 class="font-serif text-5xl md:text-7xl lg:text-8xl text-white leading-[0.9] mb-8 shadow-black drop-shadow-lg">
+            {article.title}
+          </h1>
+        </div>
+      </div>
+    </header>
+
+    <div class="container mx-auto px-6 py-16 md:py-24">
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-12">
+        
+        <aside class="lg:col-span-3 lg:col-start-1 h-fit lg:sticky lg:top-32 order-2 lg:order-1">
+          <div class="border-t border-museum-gold/30 pt-6 mb-10">
+            <h4 class="text-white uppercase tracking-widest text-xs font-bold mb-2 opacity-70">Curator</h4>
+            <p class="text-white font-serif text-lg">Dr. Maria Santos</p>
+            <p class="text-gray-500 text-xs mt-1">Head Archivist</p>
+          </div>
+
+          <div class="border-t border-museum-gold/30 pt-6 mb-10">
+            <h4 class="text-white uppercase tracking-widest text-xs font-bold mb-2 opacity-70">Reading Time</h4>
+            <p class="text-white font-serif text-lg">5 Minutes</p>
+          </div>
+
+          <div class="bg-neutral-900 border border-white/10 p-6 relative group overflow-hidden">
+            <div class="absolute inset-0 bg-museum-gold/5 group-hover:bg-museum-gold/10 transition-colors"></div>
+            <h3 class="relative font-serif text-xl text-white mb-3">See it in person</h3>
+            <p class="relative text-gray-400 text-xs mb-4 leading-relaxed">
+              This artifact is currently on display in the Main Hall (Zone A).
+            </p>
+            <a href="/visit" class="relative btn btn-sm bg-museum-gold text-black border-none rounded-none w-full uppercase tracking-widest text-xs font-bold hover:bg-white">
+              Book Appointment
+            </a>
+          </div>
+
+          <div class="mt-12 hidden lg:block">
+            <a href="/articles" class="group flex items-center gap-2 text-gray-500 hover:text-museum-gold transition-colors uppercase tracking-widest text-xs">
+              <span class="group-hover:-translate-x-1 transition-transform">←</span> Back to Archive
+            </a>
+          </div>
+        </aside>
+
+        <div class="lg:col-span-8 lg:col-start-5 order-1 lg:order-2">
+          
+          <div class="text-xl md:text-2xl text-gray-300 font-serif italic leading-relaxed mb-12 border-l-4 border-museum-gold pl-6">
+            "{article.excerpt}"
+          </div>
+
+          <div class="prose prose-invert prose-lg max-w-none 
+            prose-headings:font-serif prose-headings:text-white prose-headings:mb-6 prose-headings:mt-12
+            prose-h2:text-3xl prose-h3:text-2xl
+            prose-p:text-gray-400 prose-p:leading-8 prose-p:mb-6
+            prose-ul:list-disc prose-ul:pl-6 prose-ul:mb-6 prose-ul:text-gray-400
+            prose-li:mb-2
+            prose-strong:text-white prose-strong:font-bold
+            prose-blockquote:border-l-4 prose-blockquote:border-museum-gold prose-blockquote:bg-white/5 prose-blockquote:py-4 prose-blockquote:px-6 prose-blockquote:mb-8 prose-blockquote:italic prose-blockquote:text-gray-300
+            first-letter:text-5xl first-letter:font-serif first-letter:text-museum-gold first-letter:float-left first-letter:mr-3 first-letter:mt-[-10px]">
+            
+            <Fragment set:html={article.content} />
+          
+          </div>
+
+          <div class="mt-16 pt-8 border-t border-white/10 lg:hidden">
+            <a href="/articles" class="btn btn-outline border-white/20 text-white w-full rounded-none uppercase tracking-widest">
+              ← Back to Archive
+            </a>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <section class="border-t border-white/10 bg-neutral-900/50 py-20 px-6">
+      <div class="container mx-auto max-w-6xl">
+        <h3 class="font-serif text-3xl text-white mb-10">From the Archives</h3>
+        
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+          {relatedArticles.map((rel) => (
+            <a href={`/articles/${rel.id}`} class="group flex gap-6 items-center bg-black/20 border border-white/5 p-4 hover:border-museum-gold/30 transition-all">
+              <div class="w-24 h-24 shrink-0 overflow-hidden">
+                <img src={rel.image} class="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all" />
+              </div>
+              <div>
+                <span class="text-[10px] text-museum-gold uppercase tracking-widest block mb-1">{rel.category}</span>
+                <h4 class="font-serif text-xl text-white group-hover:text-museum-gold transition-colors">{rel.title}</h4>
+                <div class="text-gray-500 text-xs mt-2 uppercase tracking-wider group-hover:translate-x-2 transition-transform">Read Article →</div>
+              </div>
+            </a>
+          ))}
+        </div>
+      </div>
+    </section>
+
+  </article>
+</Layout>
+
+<style>
+  @keyframes slow-zoom {
+    0% { transform: scale(1); }
+    100% { transform: scale(1.1); }
+  }
+  .animate-slow-zoom {
+    animation: slow-zoom 20s ease-out forwards;
+  }
+
+  @keyframes fade-in-up {
+    0% { opacity: 0; transform: translateY(20px); }
+    100% { opacity: 1; transform: translateY(0); }
+  }
+  .animate-fade-in-up {
+    animation: fade-in-up 1s ease-out forwards;
+  }
+  
+  @keyframes scroll-progress {
+    from { transform: scaleX(0); }
+    to { transform: scaleX(1); }
+  }
+  .animate-scroll-progress {
+    animation: scroll-progress auto linear;
+    animation-timeline: scroll();
+  }
+</style>

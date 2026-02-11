@@ -1,0 +1,42 @@
+---
+import Layout from "../../layouts/Layout.astro";
+import BookingForm from "../../components/BookingForm.jsx";
+import { getTours } from "../../data/store";
+
+const tours = getTours();
+---
+<Layout>
+  <header class="bg-neutral-900 py-24 px-6 border-b border-white/5">
+    <div class="container mx-auto text-center max-w-3xl">
+      <span class="text-museum-gold uppercase tracking-widest text-sm">Educational Outreach</span>
+      <h1 class="font-serif text-5xl md:text-6xl text-white mt-6 mb-8">School Tours &<br/>Curriculum Programs</h1>
+      <p class="text-gray-400 text-lg leading-relaxed">
+        We offer immersive learning experiences aligned with the history and social studies curriculum.
+      </p>
+    </div>
+  </header>
+
+  <div class="container mx-auto px-6 py-20 grid grid-cols-1 lg:grid-cols-12 gap-16">
+    
+    <div class="lg:col-span-5 space-y-8">
+      <h3 class="font-serif text-3xl text-white mb-8">Available Programs</h3>
+      
+      {tours.map((tour) => (
+        <div class="bg-white/5 border border-white/10 p-8 hover:border-museum-gold/50 transition-colors">
+          <div class="flex justify-between items-start mb-4">
+            <h4 class="font-serif text-2xl text-white">{tour.title}</h4>
+            <span class="bg-museum-gold text-black text-xs font-bold px-2 py-1 uppercase">{tour.gradeLevel}</span>
+          </div>
+          <ul class="text-sm text-gray-400 space-y-2 mb-6">
+            <li class="flex gap-2"><span class="text-museum-gold">Focus:</span> {tour.focus}</li>
+            <li class="flex gap-2"><span class="text-museum-gold">Duration:</span> {tour.duration}</li>
+          </ul>
+        </div>
+      ))}
+    </div>
+
+    <div class="lg:col-span-7">
+      <BookingForm client:load defaultType="school" />
+    </div>
+  </div>
+</Layout>

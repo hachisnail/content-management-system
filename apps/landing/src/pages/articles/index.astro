@@ -1,5 +1,41 @@
 ---
-import ArticlePages from "./_ArticlePages.astro"
+import Layout from "../../layouts/Layout.astro";
+import { getArticles } from "../../data/store";
+
+const allArticles = getArticles();
 ---
 
-<ArticlePages/>
+<Layout>
+  <section class="py-24 px-6 container mx-auto">
+    <div class="mb-16 border-b border-white/10 pb-8">
+      <span class="text-museum-gold uppercase tracking-widest text-sm">Archive</span>
+      <h1 class="font-serif text-5xl text-white mt-4">News & Stories</h1>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-12">
+      {allArticles.map((article) => (
+        <a href={`/articles/${article.id}`} class="group block">
+          <div class="overflow-hidden mb-6 border border-white/5 aspect-[4/3] relative">
+            <div class="absolute inset-0 bg-black/20 group-hover:bg-transparent transition-colors z-10"></div>
+            <img 
+              src={`${article.image}?q=80&w=600&auto=format&fit=crop`} 
+              class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" 
+              alt={article.title} 
+            />
+          </div>
+          <div class="flex items-center gap-3 mb-3">
+            <span class="text-xs text-museum-gold uppercase tracking-wider">{article.date}</span>
+            <span class="w-px h-3 bg-white/20"></span>
+            <span class="text-xs text-gray-400 uppercase tracking-wider">{article.category}</span>
+          </div>
+          <h2 class="text-white font-serif text-2xl group-hover:text-museum-gold transition-colors leading-tight">
+            {article.title}
+          </h2>
+          <p class="text-gray-400 text-sm mt-3 line-clamp-3">
+            {article.excerpt}
+          </p>
+        </a>
+      ))}
+    </div>
+  </section>
+</Layout>

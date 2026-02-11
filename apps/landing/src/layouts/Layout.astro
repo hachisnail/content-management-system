@@ -1,13 +1,122 @@
 ---
 import '../styles/global.css';
+const webUrl = import.meta.env.WEB_URL;
+
 ---
-<html lang="en">
+
+<!doctype html>
+<html lang="en" data-theme="black">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Astro + daisyUI Test</title>
+    <meta name="viewport" content="width=device-width" />
+    <link rel="icon" type="image/svg+xml" href="/LOGO.png" />
+    <meta name="generator" content={Astro.generator} />
+    <title>Museo Bulawan | The Golden Heritage of Camarines Norte</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Lato:wght@300;400;700&family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet">
   </head>
-  <body class="bg-base-100 p-8">
-    <slot />
+  <body class="min-h-screen flex flex-col font-sans bg-[#0a0a0a] text-gray-200 selection:bg-museum-gold selection:text-black">
+    
+    <header class="fixed w-full top-0 z-50 glass-nav transition-all duration-300">
+      <div class="container mx-auto px-6 h-20 flex items-center justify-between">
+        
+        <a href="/" class="flex items-center gap-3 group">
+          <div class="w-10 h-10 bg-museum-gold rounded-full flex items-center justify-center text-black font-serif font-bold text-xl group-hover:scale-110 transition-transform">
+            <img src="/LOGO.png"/>
+          </div>
+          <div class="flex flex-col">
+            <span class="font-serif text-xl tracking-widest text-white leading-none group-hover:text-museum-gold transition-colors">MUSEO BULAWAN</span>
+            <span class="text-[10px] uppercase tracking-[0.2em] text-gray-400">Camarines Norte</span>
+          </div>
+        </a>
+
+        <nav class="hidden lg:flex items-center gap-8">
+          <a href="/articles" class="text-sm uppercase tracking-widest hover:text-museum-gold transition-colors">Articles</a>
+          <a href="/education" class="text-sm uppercase tracking-widest hover:text-museum-gold transition-colors">Education</a>
+          <a href="/about" class="text-sm uppercase tracking-widest hover:text-museum-gold transition-colors">About</a>
+        </nav>
+
+        <div class="flex items-center gap-4">
+          <a href={webUrl} target="_blank" class="text-xs font-bold uppercase tracking-widest text-gray-500 hover:text-white transition-colors hidden md:block mr-2">
+            Login
+          </a>
+
+          <a href="/visit" class="btn btn-outline border-museum-gold text-museum-gold hover:bg-museum-gold hover:text-black hover:border-museum-gold rounded-none uppercase text-xs tracking-widest px-6 hidden md:flex">
+            Plan Your Visit
+          </a>
+          <button class="btn btn-ghost btn-circle lg:hidden text-white">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h7" /></svg>
+          </button>
+        </div>
+
+      </div>
+    </header>
+
+    <main class="grow pt-20">
+      <slot />
+    </main>
+
+    <footer class="bg-neutral-900 border-t border-white/5 pt-16 pb-8">
+      <div class="container mx-auto px-6">
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-12 mb-12">
+          
+          <div class="col-span-1 md:col-span-1">
+            <h3 class="font-serif text-2xl text-white mb-4">MUSEO BULAWAN</h3>
+            <p class="text-gray-500 text-sm leading-relaxed mb-6">
+              The repository of Camarines Norte's rich cultural heritage, showcasing the golden history and artistic legacy of the province.
+            </p>
+            <div class="flex gap-4">
+              <div class="w-8 h-8 rounded-full border border-white/20 flex items-center justify-center hover:border-museum-gold hover:text-museum-gold cursor-pointer transition-colors">fb</div>
+              <div class="w-8 h-8 rounded-full border border-white/20 flex items-center justify-center hover:border-museum-gold hover:text-museum-gold cursor-pointer transition-colors">ig</div>
+            </div>
+          </div>
+
+          <div>
+            <h4 class="text-white uppercase tracking-widest text-sm mb-6 font-bold">Visit</h4>
+            <ul class="space-y-3 text-sm text-gray-400">
+              <li><a href="#" class="hover:text-museum-gold transition-colors">Hours & Admission</a></li>
+              <li><a href="#" class="hover:text-museum-gold transition-colors">Directions (Daet)</a></li>
+              <li><a href="#" class="hover:text-museum-gold transition-colors">Group Tours</a></li>
+              <li><a href="#" class="hover:text-museum-gold transition-colors">Accessibility</a></li>
+            </ul>
+          </div>
+
+          <div>
+            <h4 class="text-white uppercase tracking-widest text-sm mb-6 font-bold">Organization</h4>
+            <ul class="space-y-3 text-sm text-gray-400">
+              <li><a href="#" class="hover:text-museum-gold transition-colors">About Us</a></li>
+              <li><a href="#" class="hover:text-museum-gold transition-colors">Careers</a></li>
+              <li><a href="#" class="hover:text-museum-gold transition-colors">Provincial Government</a></li>
+              <li><a href="#" class="hover:text-museum-gold transition-colors">Contact</a></li>
+            </ul>
+          </div>
+
+          <div>
+            <h4 class="text-white uppercase tracking-widest text-sm mb-6 font-bold">Stay Updated</h4>
+            <div class="form-control">
+              <label class="input input-bordered rounded-none bg-white/5 border-white/10 flex items-center gap-2 focus-within:border-museum-gold">
+                <input type="text" class="grow text-sm text-white placeholder:text-gray-600" placeholder="Email Address" />
+                <button class="text-museum-gold hover:text-white">
+                   →
+                </button>
+              </label>
+            </div>
+            <p class="text-xs text-gray-600 mt-4">
+              Subscribe to receive updates on exhibitions and events.
+            </p>
+          </div>
+
+        </div>
+
+        <div class="border-t border-white/5 pt-8 flex flex-col md:flex-row justify-between items-center text-xs text-gray-600">
+          <p>&copy; 2024 Museo Bulawan. All Rights Reserved.</p>
+          <div class="flex gap-6 mt-4 md:mt-0">
+            <a href="#" class="hover:text-gray-400">Privacy Policy</a>
+            <a href="#" class="hover:text-gray-400">Terms of Use</a>
+          </div>
+        </div>
+      </div>
+    </footer>
   </body>
 </html>
